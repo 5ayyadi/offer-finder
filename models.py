@@ -47,6 +47,13 @@ class SearchSpec(BaseModel):
     radius_km: int | None = None
 
 
+class ListingRef(BaseModel):
+    """A listing link found in a Kleinanzeigen alert email."""
+
+    listing_id: str
+    url: str
+
+
 ListingSource = Literal["search", "gmail"]
 ListingStatus = Literal["discovered", "fetched", "out_of_range", "fetch_failed"]
 
