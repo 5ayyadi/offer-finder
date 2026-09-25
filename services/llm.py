@@ -60,7 +60,7 @@ class OpenAICompatProvider:
 
         response = self._client.post(
             f"{self._base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self._api_key}"},
+            headers={"Authorization": f"Bearer {self._api_key}"} if self._api_key else {},
             json={
                 "model": self.model,
                 "messages": [
@@ -70,7 +70,12 @@ class OpenAICompatProvider:
                 "response_format": response_format,
             },
         )
-        response.raise_for_status()
+        if response.is_error:  # keep the endpoint's explanation (bad key, rejected schema, rate limit)
+            raise httpx.HTTPStatusError(
+                f"{response.status_code} from LLM endpoint: {response.text[:500]}",
+                request=response.request,
+                response=response,
+            )
         content = response.json()["choices"][0]["message"]["content"]
         result: dict[str, Any] = json.loads(_FENCE_RE.sub("", content))
         return result

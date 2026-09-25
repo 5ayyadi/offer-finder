@@ -118,3 +118,25 @@ def test_complete_validated_gives_up_after_second_invalid_response():
     provider = _ScriptedProvider([{"answer": "x"}, {"answer": "y"}])
     with pytest.raises(LLMResponseError):
         complete_validated(provider, "s", "u", {}, _Answer)
+
+
+def test_provider_without_api_key_sends_no_auth_header():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    OpenAICompatProvider("https://example.invalid/v1", "", "m", client=client).complete_json("s", "u", {})
+    assert seen["auth"] is None
+
+
+def test_http_error_includes_the_endpoints_explanation():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"message": "Invalid JSON payload: unknown field additionalProperties"}})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = OpenAICompatProvider("https://example.invalid/v1", "k", "m", client=client)
+    with pytest.raises(httpx.HTTPStatusError, match="additionalProperties"):
+        provider.complete_json("s", "u", {})

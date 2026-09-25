@@ -15,6 +15,7 @@ import csv
 import json
 import logging
 import sys
+from pathlib import Path
 
 import db
 import runner
@@ -85,13 +86,24 @@ def cmd_search(settings: Settings, args: argparse.Namespace) -> int:
 
 
 def cmd_gmail_auth(settings: Settings, _args: argparse.Namespace) -> int:
+    if not Path(settings.gmail_credentials_path).exists():
+        print(
+            f"{settings.gmail_credentials_path} not found. In Google Cloud Console enable the Gmail API, "
+            "create an OAuth client of type 'Desktop app' and save its JSON there."
+        )
+        return 1
     authorize(settings.gmail_credentials_path, settings.gmail_token_path)
     print(f"Saved Gmail token to {settings.gmail_token_path}")
     return 0
 
 
 def cmd_gmail_poll(settings: Settings, args: argparse.Namespace) -> int:
-    outcome = runner.poll_gmail_once(settings, runner.make_provider(settings), GoogleGmailClient(settings.gmail_token_path))
+    try:
+        client = GoogleGmailClient(settings.gmail_token_path)
+    except FileNotFoundError as exc:
+        print(exc)
+        return 1
+    outcome = runner.poll_gmail_once(settings, runner.make_provider(settings), client)
     print(f"{outcome.messages} new email(s), {outcome.emails_without_listings} without listing links")
     report = outcome.report
     print(f"{report.found} listing links, {report.fetched} fetched, {report.evaluated} evaluated, "

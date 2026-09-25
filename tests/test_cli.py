@@ -65,3 +65,10 @@ def test_stats_and_export(env, capsys, tmp_path):
     rows = list(csv.DictReader(out_file.open(encoding="utf-8")))
     assert len(rows) == 2
     assert {"score", "product_verdict", "deal_verdict", "recommended", "url", "my_label"} <= set(rows[0])
+
+
+def test_gmail_commands_explain_missing_setup(env, capsys):
+    assert cli.main(["gmail-poll"]) == 1
+    assert "gmail-auth" in capsys.readouterr().out
+    assert cli.main(["gmail-auth"]) == 1
+    assert "Google Cloud" in capsys.readouterr().out

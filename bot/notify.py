@@ -99,7 +99,7 @@ def format_summary(report: RunReport, sent: int, threshold: int) -> str:
     if report.recommended > sent:
         lines.append(f"{report.recommended - sent} of them were already sent before.")
     if report.out_of_range:
-        lines.append(f"{report.out_of_range} were outside your price range.")
+        lines.append(f"{report.out_of_range} were outside your price range or radius.")
     if report.fetch_failed:
         lines.append(f"{report.fetch_failed} detail page(s) could not be loaded.")
     if report.evaluation_failed:

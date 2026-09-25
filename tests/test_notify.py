@@ -179,3 +179,8 @@ def test_summary_explains_problems():
 def test_summary_mentions_already_sent_recommendations():
     report = RunReport(found=5, evaluated=5, recommended=2, best_score=80)
     assert "already sent" in format_summary(report, sent=0, threshold=70)
+
+
+def test_summary_says_skipped_cards_were_outside_price_or_radius():
+    report = RunReport(found=20, evaluated=8, out_of_range=12, best_score=50)
+    assert "12 were outside your price range or radius." in format_summary(report, sent=0, threshold=70)
