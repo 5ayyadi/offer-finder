@@ -67,3 +67,6 @@ Short ADR-style entries. Newest context: V2 redesign, 2026-09-25.
 
 **Decision:** Logs go to the terminal and a rotating file (`data/logs/offer_finder.log`), with one INFO line per step tagged by request (`chat`, `search`, `email`). Per-request detail is at DEBUG.
 **Reason:** Both the user and future Claude sessions can follow what happened after the fact without it getting noisy. `httpx` stays at WARNING because it logs the bot token.
+
+**Decision:** Notifications are short (Telegram HTML): score, the seller's title shortened and the price; town and distance; up to 3 verified matches and concerns (worst first) as short phrases; unknowns; one verdict line naming both the deal and the product verdict; a "View listing" link. The long summaries stay in the DB.
+**Reason:** The user reads them on a phone. The title stays the seller's own words, because an AI-rewritten title could invent a model name. Deal and product stay separate in the verdict line. Everything is HTML-escaped, and if Telegram still rejects the markup the message goes out as plain text.

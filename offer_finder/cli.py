@@ -30,7 +30,7 @@ def _print_evaluation(listing: Listing, evaluation: Evaluation) -> None:
     judgment = evaluation.judgment
     if evaluation.recommended:
         print(f"[{judgment.score}/100 RECOMMENDED]")
-        print(format_notification(listing, evaluation))
+        print(format_notification(listing, evaluation, html=False))
     else:
         product, deal = judgment.product_assessment, judgment.deal_assessment
         print(f"[{judgment.score}/100] {listing.title} · {listing.price_raw or 'price unknown'}")
@@ -117,7 +117,7 @@ def cmd_gmail_poll(settings: Settings, args: argparse.Namespace) -> int:
     try:
         for listing, evaluation, _ in db.pending_notifications(conn, settings.notify_chat_id or 0):
             print(f"[{evaluation.judgment.score}/100 RECOMMENDED, not sent yet]")
-            print(format_notification(listing, evaluation), end="\n\n")
+            print(format_notification(listing, evaluation, html=False), end="\n\n")
     finally:
         conn.close()
     if args.notify:

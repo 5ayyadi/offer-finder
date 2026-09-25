@@ -6,7 +6,9 @@ retried next time and a successful one is never repeated.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
+from html import escape
 from typing import Any, Protocol
 
 from telegram import InputMediaPhoto
@@ -22,6 +24,12 @@ MAX_IMAGES = 3
 CAPTION_LIMIT = 1024
 MESSAGE_LIMIT = 4096
 _MAX_CLAIMS = 3
+_TITLE_MAX = 42
+_CLAIM_MAX = 80
+_UNKNOWN_MAX = 40
+_SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+_VERDICT_WORDS = {"good": "good", "ok": "OK", "poor": "poor", "unclear": "unclear"}
+_MATCH_NOTES = {"partial": " · partly matches", "unclear": " · match unclear", "mismatch": " · doesn't match"}
 
 
 class Sender(Protocol):
@@ -33,30 +41,67 @@ class Sender(Protocol):
     async def edit_message_text(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
-def format_notification(listing: Listing, evaluation: Evaluation, limit: int = MESSAGE_LIMIT) -> str:
-    judgment = evaluation.judgment
-    distance = evaluation.checks.distance_km
-    place = listing.location_text or "location unknown"
-    if distance is not None:
-        place += f" ({distance:g} km)"
+def _short(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _town(location_text: str | None) -> str:
+    """'67819 Rheinland-Pfalz - Kriegsfeld' -> 'Kriegsfeld', '55118 Mainz' -> 'Mainz'."""
+    if not location_text:
+        return "location unknown"
+    town = re.sub(r"^\d{5}\s+", "", location_text.rsplit(" - ", 1)[-1]).strip()
+    return town or location_text
+
+
+def format_notification(
+    listing: Listing, evaluation: Evaluation, limit: int = MESSAGE_LIMIT, html: bool = True
+) -> str:
+    """Telegram HTML (parse_mode="HTML"), or plain text for the terminal.
+    Only verified claims are shown; the long summaries stay in the DB."""
+    judgment, checks = evaluation.judgment, evaluation.checks
     product, deal = judgment.product_assessment, judgment.deal_assessment
 
-    lines = [
-        f"{judgment.score}/100 · {listing.price_raw or 'price unknown'} · {place}",
-        listing.title,
-        f"Product: {product.verdict} ({product.requirements_match}) — {product.summary}",
-        f"Deal: {deal.verdict} — {deal.summary}",
-    ]
-    lines += [f"+ {c.claim}" for c in judgment.highlights if c.verified][:_MAX_CLAIMS]
-    lines += [f"! {c.claim}" for c in judgment.concerns if c.verified][:_MAX_CLAIMS]
-    if judgment.unknowns:
-        lines.append(f"? Unknown: {', '.join(judgment.unknowns)}")
+    def text(value: str) -> str:
+        return escape(value) if html else value
 
-    body = "\n".join(lines)
-    room = limit - len(listing.url) - 1
-    if len(body) > room:
-        body = body[: room - 1] + "…"
-    return f"{body}\n{listing.url}"
+    def bold(value: str) -> str:
+        return f"<b>{value}</b>" if html else value
+
+    price = listing.price_raw or "price unknown"
+    header = bold(text(f"{judgment.score}/100 — {_short(listing.title, _TITLE_MAX)} — {price}"))
+    place = _town(listing.location_text)
+    if checks.distance_km is not None:
+        place += f" · {checks.distance_km:g} km"
+    highlights = [c.claim for c in judgment.highlights if c.verified]
+    concerns = [
+        c.claim
+        for c in sorted(judgment.concerns, key=lambda c: _SEVERITY_ORDER[c.severity])
+        if c.verified
+    ]
+    unknowns = ", ".join(_short(u, _UNKNOWN_MAX) for u in judgment.unknowns[:_MAX_CLAIMS])
+    verdict = (
+        f"{bold('Verdict:')} {_VERDICT_WORDS[deal.verdict]} deal · {_VERDICT_WORDS[product.verdict]} product"
+        f"{_MATCH_NOTES.get(product.requirements_match, '')}"
+    )
+    link = f'<a href="{escape(listing.url)}">View listing</a>' if html else listing.url
+
+    def build(claims: int, with_unknowns: bool) -> str:
+        blocks = [[header, text(place)]]
+        for title, items in (("Matches", highlights), ("Concerns", concerns)):
+            if items[:claims]:
+                blocks.append([bold(title)] + [f"• {text(_short(item, _CLAIM_MAX))}" for item in items[:claims]])
+        if with_unknowns and unknowns:
+            line = text(f"Unknown: {unknowns}")
+            blocks.append([f"<i>{line}</i>" if html else line])
+        blocks.append([verdict, link])
+        return "\n\n".join("\n".join(block) for block in blocks)
+
+    # Drop detail (never cut through markup) until it fits the Telegram limit.
+    for claims, with_unknowns in ((_MAX_CLAIMS, True), (_MAX_CLAIMS, False), (2, False), (1, False)):
+        message = build(claims, with_unknowns)
+        if len(message) <= limit:
+            return message
+    return build(0, False)
 
 
 async def _send_one(bot: Sender, chat_id: int, listing: Listing, evaluation: Evaluation) -> None:
@@ -65,14 +110,18 @@ async def _send_one(bot: Sender, chat_id: int, listing: Listing, evaluation: Eva
         caption = format_notification(listing, evaluation, limit=CAPTION_LIMIT)
         try:
             if len(images) == 1:
-                await bot.send_photo(chat_id, images[0], caption=caption)
+                await bot.send_photo(chat_id, images[0], caption=caption, parse_mode="HTML")
             else:
-                media = [InputMediaPhoto(images[0], caption=caption)] + [InputMediaPhoto(url) for url in images[1:]]
-                await bot.send_media_group(chat_id, media)
+                first = InputMediaPhoto(images[0], caption=caption, parse_mode="HTML")
+                await bot.send_media_group(chat_id, [first] + [InputMediaPhoto(url) for url in images[1:]])
             return
         except BadRequest as exc:  # Telegram couldn't fetch or accept the image URLs
             logger.info("sending images for %s failed (%s), falling back to text", listing.listing_id, exc)
-    await bot.send_message(chat_id, format_notification(listing, evaluation))
+    try:
+        await bot.send_message(chat_id, format_notification(listing, evaluation), parse_mode="HTML")
+    except BadRequest as exc:  # should not happen (everything is escaped), but never lose a find over markup
+        logger.warning("HTML for %s was rejected (%s), sending plain text", listing.listing_id, exc)
+        await bot.send_message(chat_id, format_notification(listing, evaluation, html=False))
 
 
 async def send_pending(

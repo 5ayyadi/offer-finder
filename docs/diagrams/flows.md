@@ -37,7 +37,7 @@ sequenceDiagram
     end
     A->>N: send_pending(chat, spec)
     N->>D: recommended and not yet notified
-    N-->>U: album: score · price · place, product/deal, +/!/?, link
+    N-->>U: album: score · title · price, town · km, matches, concerns, unknowns, verdict, link
     N->>D: record notification (after success)
     A-->>U: summary + link to save as Kleinanzeigen search
 ```

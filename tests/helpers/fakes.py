@@ -95,17 +95,22 @@ class FakeProvider:
 
 
 class FakeBot:
-    def __init__(self, fail_photos: bool = False, fail_all: bool = False, fail_edits: bool = False):
+    def __init__(
+        self, fail_photos: bool = False, fail_all: bool = False, fail_edits: bool = False, fail_html: bool = False
+    ):
         self.sent: list[tuple[str, dict]] = []
         self._fail_photos = fail_photos
         self._fail_all = fail_all
         self._fail_edits = fail_edits
+        self._fail_html = fail_html  # Telegram rejecting the HTML markup
         self._last_message_id = 0
 
-    async def send_message(self, chat_id, text, **kwargs):
+    async def send_message(self, chat_id, text, parse_mode=None, **kwargs):
         if self._fail_all:
             raise NetworkError("down")
-        self.sent.append(("message", {"chat_id": chat_id, "text": text}))
+        if self._fail_html and parse_mode == "HTML":
+            raise BadRequest("Can't parse entities: unsupported start tag")
+        self.sent.append(("message", {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}))
         self._last_message_id += 1
         return SimpleNamespace(message_id=self._last_message_id)
 

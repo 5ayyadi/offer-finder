@@ -17,46 +17,91 @@ def _store_recommended(conn, listing_id="111", **listing_overrides):
 
 # --- format_notification ---------------------------------------------------------
 
+URL = make_listing().url
 
-def test_notification_shows_score_price_both_verdicts_and_link():
+
+def test_notification_layout_is_short_and_scannable():
     text = format_notification(make_listing(), make_evaluation())
-    lines = text.splitlines()
-    assert lines[0].startswith("80/100 · 650 € · 55118 Mainz (2.1 km)")
-    assert "LG OLED65C27LA 65 Zoll" in text
-    assert "Product: good (match) — 65 inch OLED as requested" in text
-    assert "Deal: ok — €50 under budget" in text
-    assert "? Unknown: purchase year" in text
-    assert lines[-1] == make_listing().url
+    assert text.splitlines() == [
+        "<b>80/100 — LG OLED65C27LA 65 Zoll — 650 €</b>",
+        "Mainz · 2.1 km",
+        "",
+        "<b>Matches</b>",
+        "• Is an OLED",
+        "",
+        "<i>Unknown: purchase year</i>",
+        "",
+        "<b>Verdict:</b> OK deal · good product",
+        f'<a href="{URL}">View listing</a>',
+    ]
 
 
-def test_notification_shows_only_verified_claims():
+def test_notification_shows_only_verified_claims_and_worst_concerns_first():
     evaluation = make_evaluation()
     evaluation.judgment.highlights = [
         Claim(claim="Verified plus", evidence="x", verified=True),
         Claim(claim="Invented plus", evidence="y", verified=False),
     ]
     evaluation.judgment.concerns = [
-        Concern(claim="Verified concern", evidence="x", severity="high", verified=True),
-        Concern(claim="Invented concern", evidence="y", severity="low", verified=False),
+        Concern(claim="Minor scratch", evidence="x", severity="low", verified=True),
+        Concern(claim="Invented concern", evidence="y", severity="high", verified=False),
+        Concern(claim="Pixel defect", evidence="x", severity="high", verified=True),
     ]
     text = format_notification(make_listing(), evaluation)
-    assert "+ Verified plus" in text and "Invented plus" not in text
-    assert "! Verified concern" in text and "Invented concern" not in text
+    assert "• Verified plus" in text and "Invented" not in text
+    assert "<b>Concerns</b>\n• Pixel defect\n• Minor scratch" in text
+
+
+def test_place_is_the_town_from_the_detail_page_location():
+    evaluation = make_evaluation()
+    evaluation.checks.distance_km = 41.8
+    listing = make_listing(location_text="67819 Rheinland-Pfalz - Kriegsfeld")
+    assert format_notification(listing, evaluation).splitlines()[1] == "Kriegsfeld · 41.8 km"
 
 
 def test_notification_with_unknown_price_and_distance_says_so():
     evaluation = make_evaluation()
     evaluation.checks.distance_km = None
-    text = format_notification(make_listing(price_raw=None, location_text=None), evaluation)
-    assert text.splitlines()[0].startswith("80/100 · price unknown · location unknown")
+    lines = format_notification(make_listing(price_raw=None, location_text=None), evaluation).splitlines()
+    assert lines[0].endswith("— price unknown</b>")
+    assert lines[1] == "location unknown"
 
 
-def test_long_notification_is_cut_but_keeps_the_link():
+def test_partial_requirements_match_is_part_of_the_verdict():
     evaluation = make_evaluation()
-    evaluation.judgment.product_assessment.summary = "x" * 3000
+    evaluation.judgment.product_assessment.requirements_match = "partial"
+    assert "<b>Verdict:</b> OK deal · good product · partly matches" in format_notification(make_listing(), evaluation)
+
+
+def test_listing_text_is_html_escaped():
+    evaluation = make_evaluation()
+    evaluation.judgment.highlights = [Claim(claim="Works <100%> & fine", evidence="x", verified=True)]
+    text = format_notification(make_listing(title="TV <b>65\" & more"), evaluation)
+    assert "TV &lt;b&gt;65&quot; &amp; more" in text
+    assert "• Works &lt;100%&gt; &amp; fine" in text
+
+
+def test_long_title_is_shortened():
+    title = "Sehr schöner großer OLED Fernseher mit vielen Extras und Wandhalterung"
+    header = format_notification(make_listing(title=title), make_evaluation()).splitlines()[0]
+    assert "Sehr schöner großer OLED Fernseher mit vi…" in header
+
+
+def test_long_notification_fits_the_caption_limit_and_keeps_the_link():
+    evaluation = make_evaluation()
+    evaluation.judgment.highlights = [Claim(claim="x" * 300, evidence="x", verified=True)] * 3
+    evaluation.judgment.concerns = [Concern(claim="y" * 300, evidence="y", severity="low", verified=True)] * 3
+    evaluation.judgment.unknowns = ["z" * 300] * 3
     text = format_notification(make_listing(), evaluation, limit=1024)
     assert len(text) <= 1024
-    assert text.endswith(make_listing().url)
+    assert text.endswith(f'<a href="{URL}">View listing</a>')
+
+
+def test_plain_version_for_the_terminal_has_no_markup_and_ends_with_the_url():
+    text = format_notification(make_listing(), make_evaluation(), html=False)
+    assert "<" not in text and "&amp;" not in text
+    assert text.splitlines()[0] == "80/100 — LG OLED65C27LA 65 Zoll — 650 €"
+    assert text.splitlines()[-1] == URL
 
 
 # --- send_pending ----------------------------------------------------------------
@@ -73,6 +118,7 @@ def test_sends_album_with_caption_on_first_image_and_records_notification(conn):
     assert all(isinstance(m, InputMediaPhoto) for m in media)
     assert len(media) == 2
     assert media[0].caption is not None and "80/100" in media[0].caption
+    assert media[0].parse_mode == "HTML"
     assert media[1].caption is None
     assert db.pending_notifications(conn, 42) == []
 
@@ -97,6 +143,15 @@ def test_falls_back_to_text_when_telegram_rejects_images(conn):
     assert asyncio.run(send_pending(bot, conn, chat_id=42)) == 1
     assert bot.sent[0][0] == "message"
     assert "80/100" in bot.sent[0][1]["text"]
+    assert bot.sent[0][1]["parse_mode"] == "HTML"
+
+
+def test_falls_back_to_plain_text_if_telegram_rejects_the_formatting(conn):
+    _store_recommended(conn, image_urls=[])
+    bot = FakeBot(fail_html=True)
+    assert asyncio.run(send_pending(bot, conn, chat_id=42)) == 1
+    payload = bot.sent[0][1]
+    assert payload["parse_mode"] is None and "<b>" not in payload["text"]
 
 
 def test_listing_without_images_is_sent_as_text(conn):
