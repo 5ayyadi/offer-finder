@@ -13,8 +13,8 @@ import logging
 import sqlite3
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, replace
+from typing import Literal, Protocol
 
 from offer_finder.core.checks import compute_checks
 from offer_finder.core.distance import PlzTable, plz_distance_km
@@ -53,6 +53,16 @@ class RunReport:
     stopped_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class Progress:
+    """Where a running search is, for the live Telegram status message."""
+
+    stage: Literal["fetching", "evaluating"]
+    done: int
+    total: int
+    report: RunReport  # a snapshot of the counters so far
+
+
 def _in_price_range(price_eur: int | None, spec: SearchSpec) -> bool:
     if price_eur is None:
         return True  # unknown from the card; the detail page decides
@@ -86,6 +96,11 @@ class Pipeline:
     threshold: int
     llm_min_interval_s: float = 0.0
     sleep_fn: Callable[[float], None] = time.sleep
+    on_progress: Callable[[Progress], None] | None = None  # called from the worker thread
+
+    def _progress(self, stage: Literal["fetching", "evaluating"], done: int, total: int, report: RunReport) -> None:
+        if self.on_progress is not None:
+            self.on_progress(Progress(stage, done, total, replace(report)))
 
     def run_search(self, search_spec_id: int, spec: SearchSpec) -> RunReport:
         report = RunReport()
@@ -159,7 +174,10 @@ class Pipeline:
         to_fetch = [listing for listing in listings if listing is not None and listing.status == "discovered"]
         if to_fetch:
             logger.info("%s: fetching %d detail pages", label, len(to_fetch))
+        self._progress("fetching", 0, len(to_fetch), report)
         for done, listing in enumerate(to_fetch):
+            if done > 0:
+                self._progress("fetching", done, len(to_fetch), report)
             listing_id = listing.listing_id
             try:
                 html = self.fetcher(listing.url, "detail")
@@ -199,6 +217,8 @@ class Pipeline:
                 ),
             )
             report.fetched += 1
+        if to_fetch:
+            self._progress("fetching", len(to_fetch), len(to_fetch), report)
 
     def evaluate_pending(
         self,
@@ -211,9 +231,12 @@ class Pipeline:
         pending = db.listings_pending_evaluation(self.conn, search_spec_id, listing_ids)
         if pending:
             logger.info("%s: evaluating %d listings with %s", label, len(pending), self.model_name)
+        self._progress("evaluating", 0, len(pending), report)
         for index, listing in enumerate(pending):
-            if index > 0 and self.llm_min_interval_s > 0:
-                self.sleep_fn(self.llm_min_interval_s)
+            if index > 0:
+                self._progress("evaluating", index, len(pending), report)
+                if self.llm_min_interval_s > 0:
+                    self.sleep_fn(self.llm_min_interval_s)
             facts = extract_facts(listing)
             checks = compute_checks(facts, spec, self.plz_table, self.home_plz)
             try:
@@ -235,6 +258,8 @@ class Pipeline:
                 label, score, listing.listing_id, listing.title[:50], listing.price_raw or "no price",
                 _outcome(evaluation, self.threshold),
             )
+        if pending:
+            self._progress("evaluating", len(pending), len(pending), report)
 
 
 def _outcome(evaluation: Evaluation, threshold: int) -> str:

@@ -22,18 +22,42 @@ def _run_search(settings, bot, llm=None):
     asyncio.run(search_and_notify(bot, settings, llm or ScriptedLLM(), asyncio.Lock(), 42, offline_spec()))
 
 
+def _messages(bot):
+    """New messages only; edits of the status message are left out."""
+    return [(kind, payload) for kind, payload in bot.sent if kind != "edit"]
+
+
+def _final_status(bot) -> str:
+    edits = [payload for kind, payload in bot.sent if kind == "edit"]
+    assert edits and {edit["message_id"] for edit in edits} == {1}  # always the first message
+    return edits[-1]["text"]
+
+
 def test_confirmed_search_sends_the_good_listing_then_a_summary(tmp_path):
     settings = offline_settings(tmp_path)
     cache_search_fixtures(settings)
     bot = FakeBot()
     _run_search(settings, bot)
 
-    kinds = [kind for kind, _ in bot.sent]
-    assert kinds == ["media_group", "message"]
-    caption = bot.sent[0][1]["media"][0].caption
+    messages = _messages(bot)
+    assert [kind for kind, _ in messages] == ["message", "media_group", "message"]
+    assert messages[0][1]["text"].startswith("🔎 Searching Kleinanzeigen")  # the live status message
+    caption = messages[1][1]["media"][0].caption
     assert "85/100" in caption and "Grundig" in caption
-    summary = bot.sent[1][1]["text"]
+    summary = messages[2][1]["text"]
     assert "Checked 2 listings: 2 evaluated, 1 recommended." in summary
+
+
+def test_status_message_ends_as_a_finished_checklist(tmp_path):
+    settings = offline_settings(tmp_path)
+    cache_search_fixtures(settings)
+    bot = FakeBot()
+    _run_search(settings, bot)
+    final = _final_status(bot)
+    assert "✅ Results page: 2 listings" in final
+    assert "✅ Read 2 listing pages" in final
+    assert "✅ Evaluated 2 · 1 recommended" in final
+    assert "Done in" in final
 
 
 def test_search_start_and_end_are_logged(tmp_path, caplog):
@@ -53,15 +77,16 @@ def test_repeating_the_search_does_not_resend_the_listing(tmp_path):
 
     bot = FakeBot()
     _run_search(settings, bot)
-    assert [kind for kind, _ in bot.sent] == ["message"]
-    assert "already sent" in bot.sent[0][1]["text"]
+    messages = _messages(bot)
+    assert [kind for kind, _ in messages] == ["message", "message"]  # status + summary
+    assert "already sent" in messages[1][1]["text"]
 
 
 def test_search_problem_is_reported_to_the_user(tmp_path):
     bot = FakeBot()
     _run_search(offline_settings(tmp_path), bot)  # nothing cached, DRY_RUN on
-    assert len(bot.sent) == 1
-    assert "DRY_RUN" in bot.sent[0][1]["text"]
+    assert len(_messages(bot)) == 1  # only the status message, which now says why it stopped
+    assert "❌ Stopped: DRY_RUN is on" in _final_status(bot)
 
 
 def test_unexpected_crash_is_reported_instead_of_silence(tmp_path, monkeypatch):

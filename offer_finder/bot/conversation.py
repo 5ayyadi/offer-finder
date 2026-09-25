@@ -133,8 +133,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if query.data == "search":
         chat_data.clear()
         logger.info("chat %d: search confirmed", chat_id)
-        await _reply(query, "Searching Kleinanzeigen. I'll send the good ones here.")
-        await context.bot_data["start_search"](chat_id, spec)
+        await context.bot_data["start_search"](chat_id, spec)  # it posts a live status message
         return ConversationHandler.END
     if query.data == "change":
         chat_data.setdefault("history", []).append(("assistant", _proposal(chat_data.pop("spec"))))

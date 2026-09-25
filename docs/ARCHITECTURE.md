@@ -25,6 +25,7 @@ via `make` (`make bot`, `make search Q="…"`, …) — no install step.
 |---|---|
 | `bot/app.py` | Bot process: builds the PTB `Application`, runs confirmed searches as background tasks, schedules the Gmail job. One `asyncio.Lock` makes sure only one unit of work scrapes at a time. |
 | `bot/conversation.py` | `ConversationHandler`: COLLECTING → CONFIRMING (Search / Change / Cancel). Allowlist enforced by handler filters and in the button handler. State in memory. |
+| `bot/status.py` | The live status message of a running search: one Telegram message edited in place (results page → reading listing pages n/N → evaluating n/N → done, or ❌ why it stopped). The pipeline reports `Progress` from the worker thread; edits happen at most every 3 s, and a failed edit never breaks the search. |
 | `bot/notify.py` | Reads unsent recommendations from the DB, sends album/photo/text, records the notification **after** Telegram accepted it. Run summary text. |
 | `runner.py` | Builds real dependencies from `Settings`; `run_search_once()` and `poll_gmail_once()` — synchronous, shared by bot (worker thread) and CLI. |
 | `cli.py` | Dev CLI: `search`, `gmail-auth`, `gmail-poll`, `stats`, `export`. |

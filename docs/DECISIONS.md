@@ -62,5 +62,8 @@ Short ADR-style entries. Newest context: V2 redesign, 2026-09-25.
 **Decision:** All code in one `offer_finder/` package (role subfolders `bot/ core/ services/ storage/`), run from the repo root with `python -m offer_finder.…` / `make`; tool caches in `.cache/`; personal notes in gitignored `local/`.
 **Reason:** User's choice (2026-09-25) for a clean root. Absolute `offer_finder.` imports avoid generic top-level names like `core`/`bot`. Still no `src/` and no install step.
 
+**Decision:** A running search shows one Telegram status message that is edited in place (steps with counts), throttled to one edit every 3 s and only when the text changed.
+**Reason:** The user wants to see where a request is, not a black box. Editing one message keeps the chat clean and stays under Telegram's edit rate limits. Failed edits are ignored so progress reporting can't break a search.
+
 **Decision:** Logs go to the terminal and a rotating file (`data/logs/offer_finder.log`), with one INFO line per step tagged by request (`chat`, `search`, `email`). Per-request detail is at DEBUG.
 **Reason:** Both the user and future Claude sessions can follow what happened after the fact without it getting noisy. `httpx` stays at WARNING because it logs the bot token.

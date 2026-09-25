@@ -1,5 +1,7 @@
 """Stand-ins for the external systems: Kleinanzeigen, the LLM, Telegram, Gmail."""
 
+from types import SimpleNamespace
+
 from telegram.error import BadRequest, NetworkError
 
 from offer_finder.services.gmail import EmailMessage
@@ -93,15 +95,24 @@ class FakeProvider:
 
 
 class FakeBot:
-    def __init__(self, fail_photos: bool = False, fail_all: bool = False):
+    def __init__(self, fail_photos: bool = False, fail_all: bool = False, fail_edits: bool = False):
         self.sent: list[tuple[str, dict]] = []
         self._fail_photos = fail_photos
         self._fail_all = fail_all
+        self._fail_edits = fail_edits
+        self._last_message_id = 0
 
     async def send_message(self, chat_id, text, **kwargs):
         if self._fail_all:
             raise NetworkError("down")
         self.sent.append(("message", {"chat_id": chat_id, "text": text}))
+        self._last_message_id += 1
+        return SimpleNamespace(message_id=self._last_message_id)
+
+    async def edit_message_text(self, text, chat_id=None, message_id=None, **kwargs):
+        if self._fail_edits or self._fail_all:
+            raise BadRequest("Message is not modified")
+        self.sent.append(("edit", {"chat_id": chat_id, "message_id": message_id, "text": text}))
 
     async def send_photo(self, chat_id, photo, caption=None, **kwargs):
         if self._fail_photos or self._fail_all:

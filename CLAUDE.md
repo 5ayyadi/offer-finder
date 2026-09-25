@@ -49,7 +49,7 @@ offer_finder/            the code; run from the repo root with `python -m offer_
   core/      models + logic: parse, redflags, distance, search_spec, checks, evaluator, email_parse, pipeline
   services/  external systems: fetch (Kleinanzeigen), search_url, llm (OpenAI-compatible), gmail
   storage/   db.py (SQLite)
-  bot/       Telegram: app (process, background tasks, Gmail job), conversation, notify; `python -m offer_finder.bot`
+  bot/       Telegram: app (process, background tasks, Gmail job), conversation, status (live progress message), notify; `python -m offer_finder.bot`
 tests/       pytest, mirrors the package; helpers/ = shared fakes + factories;
              fixtures/ = real, PII-redacted Kleinanzeigen HTML + a hand-built alert email
 data/        plz_de.csv (committed); cache/, logs/, offer_finder.db, gmail_*.json (gitignored)

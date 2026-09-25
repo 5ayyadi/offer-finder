@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -15,7 +16,7 @@ from offer_finder.config import Settings
 from offer_finder.core import distance
 from offer_finder.core.email_parse import extract_listing_refs, html_to_text, match_spec
 from offer_finder.core.models import SearchSpec
-from offer_finder.core.pipeline import Fetcher, Pipeline, RunReport
+from offer_finder.core.pipeline import Fetcher, Pipeline, Progress, RunReport
 from offer_finder.core.search_spec import log_line
 from offer_finder.services.fetch import (
     BudgetExhausted,
@@ -98,7 +99,11 @@ def open_db(settings: Settings) -> sqlite3.Connection:
 
 
 def make_pipeline(
-    settings: Settings, conn: sqlite3.Connection, provider: LLMProvider, fetcher: Fetcher | None = None
+    settings: Settings,
+    conn: sqlite3.Connection,
+    provider: LLMProvider,
+    fetcher: Fetcher | None = None,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> Pipeline:
     return Pipeline(
         conn=conn,
@@ -109,6 +114,7 @@ def make_pipeline(
         home_plz=settings.home_plz,
         threshold=settings.recommendation_threshold,
         llm_min_interval_s=settings.llm_min_interval_s,
+        on_progress=on_progress,
     )
 
 
@@ -135,13 +141,18 @@ class SearchOutcome:
 
 
 def run_search_once(
-    settings: Settings, provider: LLMProvider, chat_id: int, spec: SearchSpec, fetcher: Fetcher | None = None
+    settings: Settings,
+    provider: LLMProvider,
+    chat_id: int,
+    spec: SearchSpec,
+    fetcher: Fetcher | None = None,
+    on_progress: Callable[[Progress], None] | None = None,
 ) -> SearchOutcome:
     conn = open_db(settings)
     try:
         search_spec_id = db.insert_search_spec(conn, chat_id, spec)
         logger.info("search %d (chat %d): %s", search_spec_id, chat_id, log_line(spec))
-        pipeline = make_pipeline(settings, conn, provider, fetcher)
+        pipeline = make_pipeline(settings, conn, provider, fetcher, on_progress)
         try:
             report = pipeline.run_search(search_spec_id, spec)
         except _STOP_ERRORS as exc:

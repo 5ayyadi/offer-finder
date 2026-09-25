@@ -74,7 +74,9 @@ make bot            # = uv run python -m offer_finder.bot
 ```
 
 Message your bot: describe what you want → answer its question(s) → press
-**Search**. You get one message per recommended listing, then a summary with
+**Search**. A status message then updates itself as the search runs (results
+page → reading listing pages 8/20 → evaluating 7/20 · 1 good so far → done).
+After that you get one message per recommended listing, then a summary with
 the Kleinanzeigen link for saving the search. Only users in
 `TELEGRAM_ALLOWLIST` get any reply.
 

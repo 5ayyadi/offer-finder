@@ -19,9 +19,9 @@ sequenceDiagram
     C-->>U: follow-up question (≤ 3)
     C-->>U: spec + [Search] [Change] [Cancel]
     U->>C: Search
-    C-->>U: "Searching…"
     C->>A: start_search(chat, spec)
-    A->>P: run_search_once (under lock)
+    A-->>U: status message, edited in place as each step finishes (at most every 3 s)
+    A->>P: run_search_once (under lock, reports progress back)
     P->>D: insert spec
     P->>K: search page (s-suchanfrage.html)
     P->>D: store every card (out_of_range if price/radius off)

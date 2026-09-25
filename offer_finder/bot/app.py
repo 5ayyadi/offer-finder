@@ -16,6 +16,7 @@ from telegram.ext import Application
 from offer_finder import runner
 from offer_finder.bot.conversation import build_conversation
 from offer_finder.bot.notify import Sender, format_summary, send_pending
+from offer_finder.bot.status import StatusMessage
 from offer_finder.config import Settings
 from offer_finder.core.models import SearchSpec
 from offer_finder.services.gmail import GmailClient, GoogleGmailClient
@@ -29,14 +30,25 @@ async def search_and_notify(
     bot: Sender, settings: Settings, llm: LLMProvider, lock: asyncio.Lock, chat_id: int, spec: SearchSpec
 ) -> None:
     started = time.monotonic()
+    status = StatusMessage(bot, chat_id, spec)
     try:
         if lock.locked():
             logger.info("chat %d: waiting for the running search or Gmail poll to finish", chat_id)
-        async with lock:
-            outcome = await asyncio.to_thread(runner.run_search_once, settings, llm, chat_id, spec)
+        await status.send(waiting=lock.locked())
+        updater = asyncio.create_task(status.keep_updated())
+        try:
+            async with lock:
+                status.waiting = False
+                outcome = await asyncio.to_thread(
+                    runner.run_search_once, settings, llm, chat_id, spec, on_progress=status.set_progress
+                )
+        finally:
+            updater.cancel()
+            await asyncio.gather(updater, return_exceptions=True)
         if outcome.error:
-            await bot.send_message(chat_id, outcome.error)
+            await status.refresh(error=outcome.error)
             return
+        await status.refresh(finished_s=time.monotonic() - started)
         conn = runner.open_db(settings)
         try:
             sent = await send_pending(bot, conn, chat_id, outcome.search_spec_id)

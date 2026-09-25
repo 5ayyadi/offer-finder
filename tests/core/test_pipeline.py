@@ -58,6 +58,21 @@ def test_search_logs_each_step_and_every_verdict(conn, caplog):
     assert verdicts[1].endswith("→ skipped: below 70")
 
 
+def test_progress_counts_up_through_detail_pages_then_evaluations(conn):
+    spec_id, spec = _spec(conn)
+    events = []
+    pipeline = _pipeline(conn)
+    pipeline.on_progress = events.append
+    pipeline.run_search(spec_id, spec)
+
+    assert [(e.stage, e.done, e.total) for e in events] == [
+        ("fetching", 0, 2), ("fetching", 1, 2), ("fetching", 2, 2),
+        ("evaluating", 0, 2), ("evaluating", 1, 2), ("evaluating", 2, 2),
+    ]
+    assert events[-1].report.recommended == 1
+    assert events[0].report.found == 2
+
+
 def test_budget_stop_is_logged_as_a_warning(conn, caplog):
     spec_id, spec = _spec(conn)
     fetcher = FakeFetcher(fail={SAMSUNG_ID: BudgetExhausted("cap of 2 reached")})
