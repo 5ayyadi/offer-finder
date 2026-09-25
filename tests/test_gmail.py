@@ -1,6 +1,6 @@
 import base64
 
-from services.gmail import SCOPES, extract_html, extract_subject
+from offer_finder.services.gmail import SCOPES, extract_html, extract_subject
 
 
 def _b64(text: str) -> str:

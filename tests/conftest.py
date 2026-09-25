@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from models import (
+from offer_finder.core.models import (
     Claim,
     Concern,
     DealAssessment,
@@ -17,7 +17,7 @@ from models import (
     SearchSpec,
 )
 
-FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def load_fixture(name: str) -> str:

@@ -56,5 +56,8 @@ Short ADR-style entries. Newest context: V2 redesign, 2026-09-25.
 **Decision:** Conversation state lives in memory (`chat_data`).
 **Reason:** Single user; losing a half-finished chat on restart is acceptable. Confirmed specs are persisted.
 
-**Decision:** Every evaluation stores the exact prompt, raw response, model and prompt version; `cli.py export` produces a CSV with an empty `my_label` column.
+**Decision:** Every evaluation stores the exact prompt, raw response, model and prompt version; `make export` produces a CSV with an empty `my_label` column.
 **Reason:** Lets the evaluator be measured later against a small hand-labelled set of real listings without building an eval harness now.
+
+**Decision:** All code in one `offer_finder/` package (role subfolders `bot/ core/ services/ storage/`), run from the repo root with `python -m offer_finder.…` / `make`; tool caches in `.cache/`; personal notes in gitignored `local/`.
+**Reason:** User's choice (2026-09-25) for a clean root. Absolute `offer_finder.` imports avoid generic top-level names like `core`/`bot`. Still no `src/` and no install step.

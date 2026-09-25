@@ -1,5 +1,5 @@
 """Builds the real dependencies from Settings and runs one unit of work
-(a search, or a Gmail poll). Synchronous; shared by cli.py and the bot,
+(a search, or a Gmail poll). Synchronous; shared by cli.py and the Telegram bot,
 which calls it from a worker thread.
 """
 
@@ -9,13 +9,12 @@ import logging
 import sqlite3
 from dataclasses import dataclass, field
 
-import db
-from config import Settings
-from core import distance
-from core.email_parse import extract_listing_refs, html_to_text, match_spec
-from core.pipeline import Fetcher, Pipeline, RunReport
-from models import SearchSpec
-from services.fetch import (
+from offer_finder.config import Settings
+from offer_finder.core import distance
+from offer_finder.core.email_parse import extract_listing_refs, html_to_text, match_spec
+from offer_finder.core.models import SearchSpec
+from offer_finder.core.pipeline import Fetcher, Pipeline, RunReport
+from offer_finder.services.fetch import (
     BudgetExhausted,
     CacheMiss,
     FetchFailed,
@@ -25,8 +24,9 @@ from services.fetch import (
     TooManyFailures,
     fetch_page,
 )
-from services.gmail import GmailClient
-from services.llm import LLMProvider, OpenAICompatProvider
+from offer_finder.services.gmail import GmailClient
+from offer_finder.services.llm import LLMProvider, OpenAICompatProvider
+from offer_finder.storage import db
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ def poll_gmail_once(
                 outcome.emails_without_listings += 1
                 logger.warning(
                     "no listing links in email %r; if this was a saved-search alert, its format differs "
-                    "from fixtures/gmail_alert_email.html",
+                    "from tests/fixtures/gmail_alert_email.html",
                     message.subject,
                 )
             match = match_spec(f"{message.subject} {html_to_text(message.html)}", specs)

@@ -1,6 +1,6 @@
 import pytest
 
-from core.search_spec import SpecError, describe, next_turn
+from offer_finder.core.search_spec import SpecError, describe, next_turn
 from tests.conftest import make_spec
 
 

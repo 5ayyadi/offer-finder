@@ -17,6 +17,10 @@ once. **The SQLite database is the source of truth.**
 
 ## 2. Main components
 
+All code is in the `offer_finder/` package (paths below are relative to it);
+tests and fixtures in `tests/`, runtime data in `data/`. Run from the repo root
+via `make` (`make bot`, `make search Q="…"`, …) — no install step.
+
 | Module | Responsibility |
 |---|---|
 | `bot/app.py` | Bot process: builds the PTB `Application`, runs confirmed searches as background tasks, schedules the Gmail job. One `asyncio.Lock` makes sure only one unit of work scrapes at a time. |
@@ -36,7 +40,7 @@ once. **The SQLite database is the source of truth.**
 | `services/search_url.py` | `SearchSpec` → `/s-suchanfrage.html?keywords=…&locationStr=<plz>&radius=…&minPrice=…&maxPrice=…` |
 | `services/llm.py` | OpenAI-compatible transport (Gemini by default) + `complete_validated()` (pydantic validation, one retry). |
 | `services/gmail.py` | Read-only Gmail client (OAuth installed-app flow) and MIME helpers. |
-| `db.py` / `models.py` / `config.py` | SQLite schema + queries / pydantic models / `.env` settings. |
+| `storage/db.py` / `core/models.py` / `config.py` | SQLite schema + queries / pydantic models / `.env` settings. |
 
 ## 3. Main flows
 
@@ -78,7 +82,7 @@ failures resume on the next poll.
 
 `recommended = score ≥ RECOMMENDATION_THRESHOLD and no hard fail and requirements_match ≠ "mismatch"`.
 
-## 4. Data model (`db.py`)
+## 4. Data model (`storage/db.py`)
 
 | Table | Key | Purpose |
 |---|---|---|
@@ -118,6 +122,6 @@ notifications recorded only after a successful send.
   (confirmed spec → real fetch layer in DRY_RUN over fixture HTML → DB →
   evaluation → fake Telegram; alert email → … → Telegram exactly once).
 - Evaluator replay: every evaluation stores the exact prompt, raw response
-  and `EVALUATOR_PROMPT_VERSION`; `cli.py export` writes a CSV with an empty
+  and `EVALUATOR_PROMPT_VERSION`; `make export` writes a CSV with an empty
   `my_label` column for building a hand-labelled set.
 - How to run it for real: [README.md](../README.md#how-to-test-locally).

@@ -3,11 +3,11 @@ kept offline by DRY_RUN serving fixture HTML from a temporary cache."""
 
 from typing import Any
 
-import db
-import runner
-from config import Settings
-from services.fetch import _cache_write
-from services.search_url import build_search_url
+from offer_finder import runner
+from offer_finder.config import Settings
+from offer_finder.services.fetch import _cache_write
+from offer_finder.services.search_url import build_search_url
+from offer_finder.storage import db
 from tests.conftest import load_fixture, make_spec
 from tests.test_pipeline import GRUNDIG_ID, SAMSUNG_ID, ScriptedLLM
 
@@ -78,8 +78,8 @@ def test_make_provider_uses_configured_model_and_format(tmp_path):
 
 # --- Gmail poll ----------------------------------------------------------------
 
-from services.fetch import BudgetExhausted
-from services.gmail import EmailMessage
+from offer_finder.services.fetch import BudgetExhausted
+from offer_finder.services.gmail import EmailMessage
 from tests.test_pipeline import _status
 
 _EMAIL_DETAIL_URLS = {

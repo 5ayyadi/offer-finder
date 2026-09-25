@@ -18,8 +18,11 @@ Telegram ──▶ conversation ──▶ search spec ──▶ Kleinanzeigen �
 Kleinanzeigen saved search ──▶ Gmail ──▶ listing links ─────────────┘
 ```
 
-Design, data model and decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+Code lives in `offer_finder/` (`bot/`, `core/`, `services/`, `storage/`, plus
+`config.py`, `runner.py`, `cli.py`); tests and fixtures in `tests/`; runtime data in
+`data/`. Design, data model and decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [docs/DECISIONS.md](docs/DECISIONS.md), [docs/diagrams/](docs/diagrams/).
+All commands run from the repo root; `make` targets wrap them (see `Makefile`).
 
 ## How to test locally
 
@@ -54,11 +57,12 @@ requests per search/poll (1 search page + detail pages).
 ### 2. A real search without Telegram
 
 ```bash
-uv run python cli.py search "good 65+ inch OLED TV around Mainz under 700"
+make search Q="good 65+ inch OLED TV around Mainz under 700"
+# = uv run python -m offer_finder.cli search "..."
 ```
 
 Prints the search spec, every evaluated listing (score, product/deal verdict,
-hard fails, link) and a summary. Add `--notify` to also send the recommended
+hard fails, link) and a summary. Add `NOTIFY=1` to also send the recommended
 ones to your Telegram chat. A run with 20 listings takes a minute or two: the
 request gate waits 4–6 s between detail pages, and evaluations are spaced by
 `LLM_MIN_INTERVAL_S` for the free tier.
@@ -66,7 +70,7 @@ request gate waits 4–6 s between detail pages, and evaluations are spaced by
 ### 3. The Telegram bot
 
 ```bash
-uv run python -m bot.app
+make bot            # = uv run python -m offer_finder.bot
 ```
 
 Message your bot: describe what you want → answer its question(s) → press
@@ -84,19 +88,19 @@ the Kleinanzeigen link for saving the search. Only users in
    `data/gmail_credentials.json`.
 3. One-time consent in the browser (writes `data/gmail_token.json`):
    ```bash
-   uv run python cli.py gmail-auth
+   make gmail-auth
    ```
 4. On Kleinanzeigen, save a search with email alerts (e.g. from the link the bot
    sends after a search). Using the same keywords as a bot search lets alerts
    be judged against that search's requirements.
 5. After an alert email arrived, run one poll cycle and look at the output:
    ```bash
-   uv run python cli.py gmail-poll            # add --notify to send to Telegram
+   make gmail-poll            # add NOTIFY=1 to send to Telegram
    ```
    If it reports emails *without listing links*, the alert format differs from
-   `fixtures/gmail_alert_email.html`. Send me one redacted alert email and I'll
-   adjust `core/email_parse.py`.
-6. Set `GMAIL_ENABLED=true` and restart `uv run python -m bot.app`: it polls every
+   `tests/fixtures/gmail_alert_email.html`. Send me one redacted alert email and
+   I'll adjust `offer_finder/core/email_parse.py`.
+6. Set `GMAIL_ENABLED=true` and restart `make bot`: it polls every
    `GMAIL_POLL_INTERVAL_S` seconds and sends new recommendations to
    `TELEGRAM_NOTIFY_CHAT_ID` (default: first allowlisted user).
 
@@ -107,8 +111,8 @@ after 7 days. Re-run `gmail-auth` when polling starts failing, or set the app to
 ### 5. Inspecting results
 
 ```bash
-uv run python cli.py stats                 # row counts per table / listing status
-uv run python cli.py export labels.csv     # every evaluation + empty my_label column
+make stats                   # row counts per table / listing status
+make export OUT=labels.csv   # every evaluation + empty my_label column
 sqlite3 data/offer_finder.db               # everything, including the exact LLM prompt per evaluation
 ```
 

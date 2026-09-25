@@ -1,6 +1,6 @@
 import pytest
 
-import db
+from offer_finder.storage import db
 from tests.conftest import make_evaluation, make_listing, make_spec
 
 

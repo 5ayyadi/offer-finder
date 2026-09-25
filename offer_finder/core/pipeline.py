@@ -16,21 +16,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-import db
-from core.checks import compute_checks
-from core.distance import PlzTable, plz_distance_km
-from core.evaluator import EvaluationError, evaluate
-from core.parse import (
+from offer_finder.core.checks import compute_checks
+from offer_finder.core.distance import PlzTable, plz_distance_km
+from offer_finder.core.evaluator import EvaluationError, evaluate
+from offer_finder.core.models import Listing, ListingRef, SearchSpec
+from offer_finder.core.parse import (
     extract_facts,
     extract_plz,
     extract_price_eur,
     parse_detail_page,
     parse_search_results,
 )
-from models import Listing, ListingRef, SearchSpec
-from services.fetch import BudgetExhausted, CacheMiss, FetchFailed, PageType
-from services.llm import LLMProvider
-from services.search_url import build_search_url
+from offer_finder.services.fetch import BudgetExhausted, CacheMiss, FetchFailed, PageType
+from offer_finder.services.llm import LLMProvider
+from offer_finder.services.search_url import build_search_url
+from offer_finder.storage import db
 
 logger = logging.getLogger(__name__)
 

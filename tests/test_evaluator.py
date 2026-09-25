@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from core.evaluator import (
+from offer_finder.core.evaluator import (
     SYSTEM_PROMPT,
     EvaluationError,
     build_user_prompt,
@@ -10,7 +10,7 @@ from core.evaluator import (
     is_recommended,
     verify_evidence,
 )
-from models import FieldValue
+from offer_finder.core.models import FieldValue
 from tests.conftest import make_checks, make_facts, make_judgment, make_listing, make_spec
 
 

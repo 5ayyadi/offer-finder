@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from models import SearchSpec
+from offer_finder.core.models import SearchSpec
 
 _SEARCH_FORM_URL = "https://www.kleinanzeigen.de/s-suchanfrage.html"
 

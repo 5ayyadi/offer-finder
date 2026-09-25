@@ -11,8 +11,8 @@ import html as html_module
 import re
 from urllib.parse import unquote
 
-from core.parse import clean_html_text
-from models import ListingRef, SearchSpec
+from offer_finder.core.models import ListingRef, SearchSpec
+from offer_finder.core.parse import clean_html_text
 
 _LISTING_URL_RE = re.compile(
     r"https?://(?:www\.)?kleinanzeigen\.de/s-anzeige/([^/\s\"'<>?#&]+)/(\d+)-(\d+)-(\d+)"

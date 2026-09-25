@@ -4,7 +4,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from services.llm import LLMResponseError, OpenAICompatProvider, complete_validated
+from offer_finder.services.llm import LLMResponseError, OpenAICompatProvider, complete_validated
 
 # --- OpenAICompatProvider (real HTTP shape, mocked transport) ----------------
 

@@ -1,6 +1,6 @@
 from urllib.parse import parse_qs, urlsplit
 
-from services.search_url import build_search_url
+from offer_finder.services.search_url import build_search_url
 from tests.conftest import make_spec
 
 

@@ -8,8 +8,15 @@ from types import SimpleNamespace
 from telegram import Chat, Message, Update, User
 from telegram.ext import ConversationHandler
 
-from bot.conversation import COLLECTING, CONFIRMING, build_conversation, on_button, on_text, start
-from config import Settings
+from offer_finder.bot.conversation import (
+    COLLECTING,
+    CONFIRMING,
+    build_conversation,
+    on_button,
+    on_text,
+    start,
+)
+from offer_finder.config import Settings
 from tests.test_search_spec import _FakeProvider, _response
 
 ALLOWED_ID = 42

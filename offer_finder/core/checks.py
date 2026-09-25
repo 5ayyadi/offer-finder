@@ -5,8 +5,8 @@ the arithmetic or geography itself.
 
 from __future__ import annotations
 
-from core.distance import PlzTable, plz_distance_km
-from models import DeterministicChecks, ListingFacts, SearchSpec
+from offer_finder.core.distance import PlzTable, plz_distance_km
+from offer_finder.core.models import DeterministicChecks, ListingFacts, SearchSpec
 
 
 def compute_checks(

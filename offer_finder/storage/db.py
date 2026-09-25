@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from models import Evaluation, Listing, ListingStatus, SearchSpec
+from offer_finder.core.models import Evaluation, Listing, ListingStatus, SearchSpec
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS search_specs (

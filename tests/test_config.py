@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from config import Settings
+from offer_finder.config import Settings
 
 
 def _settings(monkeypatch, **values):

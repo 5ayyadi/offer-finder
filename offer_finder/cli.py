@@ -1,10 +1,11 @@
 """Dev CLI: run the pipeline without Telegram, set up Gmail, inspect the DB.
+Run from the repo root (or use the make targets, see Makefile):
 
-  uv run python cli.py search "65+ OLED TV around Mainz under 700" [--notify]
-  uv run python cli.py gmail-auth
-  uv run python cli.py gmail-poll [--notify]
-  uv run python cli.py stats
-  uv run python cli.py export evaluations.csv
+  uv run python -m offer_finder.cli search "65+ OLED TV around Mainz under 700" [--notify]
+  uv run python -m offer_finder.cli gmail-auth
+  uv run python -m offer_finder.cli gmail-poll [--notify]
+  uv run python -m offer_finder.cli stats
+  uv run python -m offer_finder.cli export evaluations.csv
 """
 
 from __future__ import annotations
@@ -17,13 +18,13 @@ import logging
 import sys
 from pathlib import Path
 
-import db
-import runner
-from bot.notify import format_notification, format_summary, send_pending
-from config import Settings
-from core.search_spec import SpecError, describe, next_turn
-from models import Evaluation, Listing
-from services.gmail import GoogleGmailClient, authorize
+from offer_finder import runner
+from offer_finder.bot.notify import format_notification, format_summary, send_pending
+from offer_finder.config import Settings
+from offer_finder.core.models import Evaluation, Listing
+from offer_finder.core.search_spec import SpecError, describe, next_turn
+from offer_finder.services.gmail import GoogleGmailClient, authorize
+from offer_finder.storage import db
 
 
 def _print_evaluation(listing: Listing, evaluation: Evaluation) -> None:
@@ -150,7 +151,7 @@ def cmd_export(settings: Settings, args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="cli.py", description="offer-finder dev CLI")
+    parser = argparse.ArgumentParser(prog="python -m offer_finder.cli", description="offer-finder dev CLI")
     sub = parser.add_subparsers(dest="command", required=True)
     search = sub.add_parser("search", help="one message -> spec -> search -> evaluate -> print")
     search.add_argument("text")

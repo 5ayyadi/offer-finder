@@ -3,10 +3,10 @@ SQLite DB. Nothing here touches the network."""
 
 import pytest
 
-import db
-from core.pipeline import Pipeline
-from models import ListingRef
-from services.fetch import BudgetExhausted, FetchFailed
+from offer_finder.core.models import ListingRef
+from offer_finder.core.pipeline import Pipeline
+from offer_finder.services.fetch import BudgetExhausted, FetchFailed
+from offer_finder.storage import db
 from tests.conftest import load_fixture, make_spec
 
 GRUNDIG_ID = "3518580533"  # 99 €, clean listing (fixtures/tv_listing_normal.html)

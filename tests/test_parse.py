@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from core.parse import (
+from offer_finder.core.parse import (
     extract_condition_text,
     extract_facts,
     extract_plz,

@@ -14,7 +14,7 @@ import json
 import re
 from typing import Any
 
-from models import (
+from offer_finder.core.models import (
     Claim,
     DeterministicChecks,
     Evaluation,
@@ -23,7 +23,7 @@ from models import (
     ListingFacts,
     SearchSpec,
 )
-from services.llm import LLMProvider, complete_validated
+from offer_finder.services.llm import LLMProvider, complete_validated
 
 EVALUATOR_PROMPT_VERSION = "2026-09-25.1"
 

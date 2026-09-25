@@ -23,9 +23,9 @@ from telegram.ext import (
 )
 from telegram.warnings import PTBUserWarning
 
-from config import Settings
-from core.search_spec import SpecError, describe, next_turn
-from models import SearchSpec
+from offer_finder.config import Settings
+from offer_finder.core.models import SearchSpec
+from offer_finder.core.search_spec import SpecError, describe, next_turn
 
 COLLECTING, CONFIRMING = range(2)
 

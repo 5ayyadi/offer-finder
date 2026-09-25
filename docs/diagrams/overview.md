@@ -1,6 +1,6 @@
 # Overview
 
-Two ingestion paths, one pipeline, one database.
+Two ingestion paths, one pipeline, one database. Module paths are relative to `offer_finder/`.
 
 ```mermaid
 flowchart LR

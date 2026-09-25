@@ -1,7 +1,7 @@
 
 import pytest
 
-from services.fetch import (
+from offer_finder.services.fetch import (
     BudgetExhausted,
     CacheMiss,
     FetchFailed,
@@ -104,7 +104,7 @@ def test_gate_resets_failure_count_on_success():
 def test_fetch_page_dry_run_returns_cached_content(tmp_path):
     cache_dir = str(tmp_path)
     gate = _gate()
-    from services.fetch import _cache_write
+    from offer_finder.services.fetch import _cache_write
 
     _cache_write(cache_dir, "https://example.invalid/foo", "<html>cached</html>")
 
@@ -126,7 +126,7 @@ def test_fetch_page_dry_run_raises_cache_miss(tmp_path):
 def test_fetch_page_kill_switch_raises_even_with_cache(tmp_path):
     cache_dir = str(tmp_path)
     gate = _gate()
-    from services.fetch import _cache_write
+    from offer_finder.services.fetch import _cache_write
 
     _cache_write(cache_dir, "https://example.invalid/foo", "<html>cached</html>")
 
@@ -184,7 +184,7 @@ def _stale_cache(cache_dir: str, url: str, age_s: float) -> None:
     import os
     import time
 
-    from services.fetch import _cache_path, _cache_write
+    from offer_finder.services.fetch import _cache_path, _cache_write
 
     _cache_write(cache_dir, url, "<html>old</html>")
     old = time.time() - age_s

@@ -13,8 +13,8 @@ from datetime import date, datetime
 
 from pydantic import HttpUrl
 
-from core import redflags
-from models import FieldValue, Listing, ListingFacts, ListingSummary
+from offer_finder.core import redflags
+from offer_finder.core.models import FieldValue, Listing, ListingFacts, ListingSummary
 
 _PRICE_RE = re.compile(r"(\d{1,3}(?:\.\d{3})*)(?:,(\d{1,2}))?\s*€")
 _PLZ_RE = re.compile(r"\b(\d{5})\b")

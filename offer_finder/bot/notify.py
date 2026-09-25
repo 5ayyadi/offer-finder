@@ -12,9 +12,9 @@ from typing import Any, Protocol
 from telegram import InputMediaPhoto
 from telegram.error import BadRequest, TelegramError
 
-import db
-from core.pipeline import RunReport
-from models import Evaluation, Listing
+from offer_finder.core.models import Evaluation, Listing
+from offer_finder.core.pipeline import RunReport
+from offer_finder.storage import db
 
 logger = logging.getLogger(__name__)
 

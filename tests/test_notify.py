@@ -4,10 +4,10 @@ import pytest
 from telegram import InputMediaPhoto
 from telegram.error import BadRequest, NetworkError
 
-import db
-from bot.notify import format_notification, format_summary, send_pending
-from core.pipeline import RunReport
-from models import Claim, Concern
+from offer_finder.bot.notify import format_notification, format_summary, send_pending
+from offer_finder.core.models import Claim, Concern
+from offer_finder.core.pipeline import RunReport
+from offer_finder.storage import db
 from tests.conftest import make_evaluation, make_listing
 
 

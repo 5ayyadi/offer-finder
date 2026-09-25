@@ -1,6 +1,6 @@
 import pytest
 
-from core.distance import haversine_km, load_plz_table, plz_distance_km
+from offer_finder.core.distance import haversine_km, load_plz_table, plz_distance_km
 
 _TEST_TABLE = {
     "55128": (49.9783406, 8.239083),  # Mainz-Bretzenheim

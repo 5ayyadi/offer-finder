@@ -11,8 +11,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from models import SearchSpec
-from services.llm import LLMProvider, complete_validated
+from offer_finder.core.models import SearchSpec
+from offer_finder.services.llm import LLMProvider, complete_validated
 
 Role = Literal["user", "assistant"]
 

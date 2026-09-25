@@ -6,7 +6,7 @@ import asyncio
 
 from telegram.ext import ConversationHandler
 
-from bot.app import build_application, search_and_notify
+from offer_finder.bot.app import build_application, search_and_notify
 from tests.test_notify import FakeBot
 from tests.test_pipeline import ScriptedLLM
 from tests.test_runner import _cache_fixtures, _settings, _spec
@@ -55,7 +55,7 @@ def test_unexpected_crash_is_reported_instead_of_silence(tmp_path, monkeypatch):
     async def crash(*args, **kwargs):
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr("bot.app.send_pending", crash)
+    monkeypatch.setattr("offer_finder.bot.app.send_pending", crash)
     bot = FakeBot()
     _run_search(settings, bot)
     assert "went wrong" in bot.sent[-1][1]["text"]
@@ -73,7 +73,7 @@ def test_build_application_wires_conversation_and_dependencies(tmp_path):
 
 # --- Gmail flow: alert email -> DB -> evaluation -> Telegram -------------------
 
-from bot.app import gmail_poll_and_notify
+from offer_finder.bot.app import gmail_poll_and_notify
 from tests.test_runner import _alert_gmail, _cache_email_details
 
 
@@ -115,7 +115,7 @@ def test_gmail_job_is_scheduled_when_enabled(tmp_path):
 
 
 def test_summary_offers_the_search_link_for_saving_on_kleinanzeigen(tmp_path):
-    from services.search_url import build_search_url
+    from offer_finder.services.search_url import build_search_url
 
     settings = _settings(tmp_path)
     _cache_fixtures(settings)

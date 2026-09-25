@@ -12,14 +12,14 @@ import logging
 from telegram import Bot
 from telegram.ext import Application
 
-import runner
-from bot.conversation import build_conversation
-from bot.notify import Sender, format_summary, send_pending
-from config import Settings
-from models import SearchSpec
-from services.gmail import GmailClient, GoogleGmailClient
-from services.llm import LLMProvider
-from services.search_url import build_search_url
+from offer_finder import runner
+from offer_finder.bot.conversation import build_conversation
+from offer_finder.bot.notify import Sender, format_summary, send_pending
+from offer_finder.config import Settings
+from offer_finder.core.models import SearchSpec
+from offer_finder.services.gmail import GmailClient, GoogleGmailClient
+from offer_finder.services.llm import LLMProvider
+from offer_finder.services.search_url import build_search_url
 
 logger = logging.getLogger(__name__)
 

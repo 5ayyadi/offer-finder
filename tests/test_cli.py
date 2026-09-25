@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 
-import cli
-import runner
+from offer_finder import cli, runner
 from tests.test_pipeline import _judgment
 from tests.test_runner import _cache_fixtures, _settings
 from tests.test_search_spec import _response

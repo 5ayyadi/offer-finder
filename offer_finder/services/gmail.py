@@ -64,7 +64,7 @@ class GoogleGmailClient:
         from googleapiclient.discovery import build
 
         if not Path(token_path).exists():
-            raise FileNotFoundError(f"{token_path} not found. Run `uv run python cli.py gmail-auth` first.")
+            raise FileNotFoundError(f"{token_path} not found. Run `make gmail-auth` first.")
         credentials = Credentials.from_authorized_user_file(token_path, SCOPES)  # type: ignore[no-untyped-call]
         if not credentials.valid and credentials.refresh_token:
             credentials.refresh(Request())

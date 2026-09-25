@@ -1,4 +1,4 @@
-from core.redflags import (
+from offer_finder.core.redflags import (
     detect_defect_keywords,
     detect_payment_red_flags,
     detect_shipping_only,
@@ -46,7 +46,7 @@ def test_detect_defect_keywords_none_found():
 
 
 def test_scam_fixture_triggers_all_signal_types():
-    from core.parse import parse_detail_page
+    from offer_finder.core.parse import parse_detail_page
 
     html = load_fixture("tv_listing_scam.html")
     description = parse_detail_page(html).description
