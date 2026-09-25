@@ -1,11 +1,8 @@
 """The one choke point every outbound request to Kleinanzeigen goes through.
 
-V1 keeps this simple on purpose: a single acquire()/record_result() gate
-with jittered pacing and a hard per-run cap, plain "stop after N failures"
-instead of a persisted exponential-backoff state machine, and a flat
-on-disk HTML cache. Not built here (deferred to V2): a budget that
-survives process restarts, exponential backoff curves, a formal
-kill-switch object. See the plan's V2 roadmap for the fuller design.
+Deliberately simple: a single acquire()/record_result() gate with jittered
+pacing and a hard per-run cap, plain "stop after N failures" instead of a
+persisted backoff state machine, and a flat on-disk HTML cache.
 """
 
 from __future__ import annotations
@@ -118,9 +115,11 @@ def _cache_path(cache_dir: str, url: str) -> Path:
     return Path(cache_dir) / f"{key}.html"
 
 
-def _cache_read(cache_dir: str, url: str) -> str | None:
+def _cache_read(cache_dir: str, url: str, max_age_s: float | None = None) -> str | None:
     path = _cache_path(cache_dir, url)
     if not path.exists():
+        return None
+    if max_age_s is not None and time.time() - path.stat().st_mtime > max_age_s:
         return None
     return path.read_text(encoding="utf-8")
 
@@ -154,11 +153,14 @@ def fetch_page(
     dry_run: bool,
     kill_switch: bool,
     http_get: Callable[[str], tuple[int, str]] = _curl_cffi_http_get,
+    cache_ttl_s: float | None = None,
 ) -> str:
+    """cache_ttl_s=None caches forever (detail pages); search pages pass a TTL
+    so a repeated search sees new listings. DRY_RUN ignores the TTL."""
     if kill_switch:
         raise KillSwitchActive("KILL_SWITCH is active — refusing to fetch anything")
 
-    cached = _cache_read(cache_dir, url)
+    cached = _cache_read(cache_dir, url, max_age_s=None if dry_run else cache_ttl_s)
     if cached is not None:
         return cached
 

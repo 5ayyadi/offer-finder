@@ -77,6 +77,7 @@ class ListingFacts(BaseModel):
 
     title: str
     description: str | None
+    price_raw: str | None
     price_eur: FieldValue[int]
     plz: FieldValue[str]
     location_text: str | None

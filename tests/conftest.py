@@ -78,6 +78,7 @@ def make_facts() -> ListingFacts:
     return ListingFacts(
         title="LG OLED65C27LA 65 Zoll",
         description="LG OLED 65 Zoll, sehr guter Zustand, mit Fernbedienung.",
+        price_raw="650 €",
         price_eur=FieldValue(value=650, source="regex", confidence=0.95),
         plz=FieldValue(value="55118", source="regex", confidence=0.9),
         location_text="55118 Mainz",

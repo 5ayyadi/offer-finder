@@ -175,3 +175,49 @@ def test_fetch_page_raises_fetch_failed_on_bad_response(tmp_path):
             "https://example.invalid/blocked", "search", gate,
             cache_dir=str(tmp_path), dry_run=False, kill_switch=False, http_get=fake_http_get,
         )
+
+
+# --- cache TTL -------------------------------------------------------------------
+
+
+def _stale_cache(cache_dir: str, url: str, age_s: float) -> None:
+    import os
+    import time
+
+    from services.fetch import _cache_path, _cache_write
+
+    _cache_write(cache_dir, url, "<html>old</html>")
+    old = time.time() - age_s
+    os.utime(_cache_path(cache_dir, url), (old, old))
+
+
+def test_fetch_page_refetches_when_cache_is_older_than_ttl(tmp_path):
+    url = "https://example.invalid/search"
+    _stale_cache(str(tmp_path), url, age_s=3600)
+
+    html = fetch_page(
+        url, "search", _gate(), cache_dir=str(tmp_path), dry_run=False, kill_switch=False,
+        http_get=lambda _url: (200, "<html>" + "new" * 1000 + "</html>"), cache_ttl_s=900,
+    )
+    assert "new" in html
+
+
+def test_fetch_page_uses_fresh_cache_within_ttl(tmp_path):
+    url = "https://example.invalid/search"
+    _stale_cache(str(tmp_path), url, age_s=60)
+
+    html = fetch_page(
+        url, "search", _gate(), cache_dir=str(tmp_path), dry_run=False, kill_switch=False,
+        http_get=lambda _url: (200, "should not be fetched"), cache_ttl_s=900,
+    )
+    assert html == "<html>old</html>"
+
+
+def test_fetch_page_dry_run_serves_stale_cache_rather_than_touching_network(tmp_path):
+    url = "https://example.invalid/search"
+    _stale_cache(str(tmp_path), url, age_s=3600)
+
+    html = fetch_page(
+        url, "search", _gate(), cache_dir=str(tmp_path), dry_run=True, kill_switch=False, cache_ttl_s=900,
+    )
+    assert html == "<html>old</html>"

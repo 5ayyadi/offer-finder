@@ -13,7 +13,8 @@ from datetime import date, datetime
 
 from pydantic import HttpUrl
 
-from models import FieldValue, ListingSummary
+from core import redflags
+from models import FieldValue, Listing, ListingFacts, ListingSummary
 
 _PRICE_RE = re.compile(r"(\d{1,3}(?:\.\d{3})*)(?:,(\d{1,2}))?\s*€")
 _PLZ_RE = re.compile(r"\b(\d{5})\b")
@@ -91,6 +92,9 @@ _DETAIL_DESCRIPTION_RE = re.compile(
 _DETAIL_LOCALITY_RE = re.compile(r'id="viewad-locality"[^>]*>(.*?)<', re.DOTALL)
 _DETAIL_PRICE_RE = re.compile(r'id="viewad-price"[^>]*>(.*?)<', re.DOTALL)
 _DETAIL_POSTED_RE = re.compile(r'icon-calendar-gray-simple"[^>]*></i><span>([^<]+)</span>')
+_GALLERY_IMAGE_RE = re.compile(r'data-imgsrc="(https://img\.kleinanzeigen\.de/[^"?]+)')
+_RESULTS_CONTAINER_MARKER = 'id="srchrslt-'
+_LARGE_IMAGE_RULE = "?rule=$_59.JPG"
 
 
 @dataclass
@@ -100,6 +104,7 @@ class DetailPageText:
     location_text: str | None
     price_raw: str | None
     posted_raw: str | None
+    image_urls: list[str]
 
 
 def _clean_html_text(raw: str) -> str:
@@ -111,6 +116,8 @@ def _clean_html_text(raw: str) -> str:
 def parse_search_results(html: str) -> list[ListingSummary]:
     matches = list(_ARTICLE_RE.finditer(html))
     if not matches:
+        if _RESULTS_CONTAINER_MARKER in html:
+            return []  # a real results page that just has zero hits
         raise ValueError("no listing cards found on search-results page — layout may have changed")
 
     listings: list[ListingSummary] = []
@@ -158,4 +165,33 @@ def parse_detail_page(html: str) -> DetailPageText:
         location_text=_clean_html_text(locality_match.group(1)) if locality_match else None,
         price_raw=_clean_html_text(price_match.group(1)) if price_match else None,
         posted_raw=_clean_html_text(posted_match.group(1)) if posted_match else None,
+        image_urls=_gallery_image_urls(html),
+    )
+
+
+def _gallery_image_urls(html: str) -> list[str]:
+    """Each gallery image appears in several sizes; keep one large JPG per image."""
+    unique = dict.fromkeys(match.group(1) for match in _GALLERY_IMAGE_RE.finditer(html))
+    return [base + _LARGE_IMAGE_RULE for base in unique]
+
+
+# --- facts (layer 1 of evaluation) ------------------------------------------
+
+
+def extract_facts(listing: Listing, today: date | None = None) -> ListingFacts:
+    """Only what the listing itself states. The asking price comes from the
+    price field alone — a number in the description may be the Neupreis."""
+    description = listing.description
+    text = f"{listing.title} {description or ''}"
+    return ListingFacts(
+        title=listing.title,
+        description=description,
+        price_raw=listing.price_raw,
+        price_eur=extract_price_eur(listing.price_raw or ""),
+        plz=extract_plz(listing.location_text or ""),
+        location_text=listing.location_text,
+        condition=extract_condition_text(description or ""),
+        posted_days_ago=extract_posted_days_ago(listing.posted_at_raw or "", today=today),
+        image_count=len(listing.image_urls),
+        redflag_hints=redflags.hints(text),
     )
