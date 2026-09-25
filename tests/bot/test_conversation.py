@@ -17,7 +17,7 @@ from offer_finder.bot.conversation import (
     start,
 )
 from offer_finder.config import Settings
-from tests.test_search_spec import _FakeProvider, _response
+from tests.helpers.fakes import FakeProvider, spec_response
 
 ALLOWED_ID = 42
 
@@ -62,7 +62,7 @@ class FakeContext:
         async def start_search(chat_id, spec):
             self.searches.append((chat_id, spec))
 
-        self.provider = _FakeProvider(*llm_responses)
+        self.provider = FakeProvider(*llm_responses)
         self.chat_data: dict = {}
         self.bot_data = {
             "settings": Settings(_env_file=None, telegram_allowlist=[ALLOWED_ID], home_plz="10115"),
@@ -86,7 +86,7 @@ def test_start_greets_and_resets_the_conversation():
 
 
 def test_vague_message_gets_a_follow_up_question():
-    context = FakeContext(_response(ready=False, question="Welches Budget?", query=None))
+    context = FakeContext(spec_response(ready=False, question="Welches Budget?", query=None))
     update = _update("Ich will einen Fernseher")
     assert run(on_text(update, context)) == COLLECTING
     assert update.message.replies[0][0] == "Welches Budget?"
@@ -94,7 +94,7 @@ def test_vague_message_gets_a_follow_up_question():
 
 
 def test_complete_request_shows_spec_with_confirm_buttons():
-    context = FakeContext(_response())
+    context = FakeContext(spec_response())
     update = _update("good 65+ OLED TV around Mainz under 700")
     assert run(on_text(update, context)) == CONFIRMING
     text, markup = update.message.replies[0]
@@ -104,7 +104,7 @@ def test_complete_request_shows_spec_with_confirm_buttons():
 
 
 def test_confirming_starts_the_search_and_ends_the_conversation():
-    context = FakeContext(_response())
+    context = FakeContext(spec_response())
     run(on_text(_update("OLED TV"), context))
     query = FakeQuery("search")
     assert run(on_button(_update(query=query), context)) == ConversationHandler.END
@@ -116,7 +116,7 @@ def test_confirming_starts_the_search_and_ends_the_conversation():
 
 
 def test_change_asks_what_to_change_and_keeps_the_proposal_in_context():
-    context = FakeContext(_response(), _response(query="OLED 55 Zoll"))
+    context = FakeContext(spec_response(), spec_response(query="OLED 55 Zoll"))
     run(on_text(_update("OLED TV"), context))
     query = FakeQuery("change")
     assert run(on_button(_update(query=query), context)) == COLLECTING
@@ -128,7 +128,7 @@ def test_change_asks_what_to_change_and_keeps_the_proposal_in_context():
 
 
 def test_typing_instead_of_pressing_a_button_counts_as_a_change():
-    context = FakeContext(_response(), _response(query="OLED 55 Zoll"))
+    context = FakeContext(spec_response(), spec_response(query="OLED 55 Zoll"))
     run(on_text(_update("OLED TV"), context))
     update = _update("actually make it 55 inch")
     assert run(on_text(update, context)) == CONFIRMING
@@ -137,7 +137,7 @@ def test_typing_instead_of_pressing_a_button_counts_as_a_change():
 
 
 def test_cancel_button_ends_without_searching():
-    context = FakeContext(_response())
+    context = FakeContext(spec_response())
     run(on_text(_update("OLED TV"), context))
     assert run(on_button(_update(query=FakeQuery("cancel")), context)) == ConversationHandler.END
     assert context.searches == []
@@ -153,7 +153,7 @@ def test_unusable_message_asks_to_rephrase_and_forgets_it():
 
 
 def test_button_press_from_stranger_is_ignored():
-    context = FakeContext(_response())
+    context = FakeContext(spec_response())
     run(on_text(_update("OLED TV"), context))
     query = FakeQuery("search", user_id=999)
     assert run(on_button(_update(query=query, user_id=999), context)) == ConversationHandler.END

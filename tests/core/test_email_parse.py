@@ -1,5 +1,5 @@
 from offer_finder.core.email_parse import extract_listing_refs, html_to_text, match_spec
-from tests.conftest import load_fixture, make_spec
+from tests.helpers.factories import load_fixture, make_spec
 
 
 def test_extracts_each_listing_once_with_canonical_url():

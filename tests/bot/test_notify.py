@@ -1,44 +1,13 @@
 import asyncio
 
-import pytest
 from telegram import InputMediaPhoto
-from telegram.error import BadRequest, NetworkError
 
 from offer_finder.bot.notify import format_notification, format_summary, send_pending
 from offer_finder.core.models import Claim, Concern
 from offer_finder.core.pipeline import RunReport
 from offer_finder.storage import db
-from tests.conftest import make_evaluation, make_listing
-
-
-class FakeBot:
-    def __init__(self, fail_photos: bool = False, fail_all: bool = False):
-        self.sent: list[tuple[str, dict]] = []
-        self._fail_photos = fail_photos
-        self._fail_all = fail_all
-
-    async def send_message(self, chat_id, text, **kwargs):
-        if self._fail_all:
-            raise NetworkError("down")
-        self.sent.append(("message", {"chat_id": chat_id, "text": text}))
-
-    async def send_photo(self, chat_id, photo, caption=None, **kwargs):
-        if self._fail_photos or self._fail_all:
-            raise BadRequest("Wrong type of the web page content")
-        self.sent.append(("photo", {"chat_id": chat_id, "photo": photo, "caption": caption}))
-
-    async def send_media_group(self, chat_id, media, **kwargs):
-        if self._fail_photos or self._fail_all:
-            raise BadRequest("Failed to get http url content")
-        self.sent.append(("media_group", {"chat_id": chat_id, "media": media}))
-
-
-@pytest.fixture
-def conn():
-    connection = db.connect(":memory:")
-    db.init_db(connection)
-    yield connection
-    connection.close()
+from tests.helpers.factories import make_evaluation, make_listing
+from tests.helpers.fakes import FakeBot
 
 
 def _store_recommended(conn, listing_id="111", **listing_overrides):

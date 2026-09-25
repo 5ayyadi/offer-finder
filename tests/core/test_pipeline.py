@@ -1,74 +1,15 @@
 """Offline end-to-end: fixture HTML + scripted LLM + a real (temporary)
 SQLite DB. Nothing here touches the network."""
 
-import pytest
 
 from offer_finder.core.models import ListingRef
 from offer_finder.core.pipeline import Pipeline
 from offer_finder.services.fetch import BudgetExhausted, FetchFailed
 from offer_finder.storage import db
-from tests.conftest import load_fixture, make_spec
-
-GRUNDIG_ID = "3518580533"  # 99 €, clean listing (fixtures/tv_listing_normal.html)
-SAMSUNG_ID = "9999999901"  # 120 €, scam signals (fixtures/tv_listing_scam.html)
+from tests.helpers.factories import make_spec
+from tests.helpers.fakes import GRUNDIG_ID, SAMSUNG_ID, FakeFetcher, ScriptedLLM
 
 PLZ_TABLE = {"57074": (50.87, 8.02), "10115": (52.53, 13.38)}
-
-
-class FakeFetcher:
-    def __init__(self, fail: dict[str, Exception] | None = None):
-        self.calls: list[tuple[str, str]] = []
-        self._fail = fail or {}
-
-    def __call__(self, url: str, page_type: str) -> str:
-        self.calls.append((url, page_type))
-        for listing_id, exc in self._fail.items():
-            if listing_id in url:
-                raise exc
-        if page_type == "search":
-            return load_fixture("e2e_search_results.html")
-        if GRUNDIG_ID in url:
-            return load_fixture("tv_listing_normal.html")
-        if SAMSUNG_ID in url:
-            return load_fixture("tv_listing_scam.html")
-        raise AssertionError(f"unexpected url {url}")
-
-    def detail_calls(self) -> list[str]:
-        return [url for url, page_type in self.calls if page_type == "detail"]
-
-
-def _judgment(score: int) -> dict:
-    return {
-        "product_assessment": {"verdict": "good", "requirements_match": "match", "summary": "a TV"},
-        "deal_assessment": {"verdict": "good" if score > 50 else "poor", "summary": "deal"},
-        "highlights": [{"claim": "4K", "evidence": "4K Ultra HD"}],
-        "concerns": [],
-        "unknowns": [],
-        "score": score,
-        "confidence": "high",
-    }
-
-
-class ScriptedLLM:
-    """Scores the clean Grundig listing high and the scam one low."""
-
-    def __init__(self, fail_times: int = 0):
-        self.calls = 0
-        self._fail_times = fail_times
-
-    def complete_json(self, system_prompt, user_prompt, json_schema):
-        self.calls += 1
-        if self.calls <= self._fail_times:
-            raise RuntimeError("429 Too Many Requests")
-        return _judgment(85 if "Grundig" in user_prompt else 20)
-
-
-@pytest.fixture
-def conn():
-    connection = db.connect(":memory:")
-    db.init_db(connection)
-    yield connection
-    connection.close()
 
 
 def _pipeline(conn, fetcher=None, llm=None, sleeps=None, interval=0.0):

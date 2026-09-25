@@ -4,9 +4,8 @@ from pathlib import Path
 import pytest
 
 from offer_finder import cli, runner
-from tests.test_pipeline import _judgment
-from tests.test_runner import _cache_fixtures, _settings
-from tests.test_search_spec import _response
+from tests.helpers.fakes import judgment_response, spec_response
+from tests.helpers.offline import cache_search_fixtures, offline_settings
 
 PLZ_CSV = str(Path(__file__).parent.parent / "data" / "plz_de.csv")
 
@@ -20,14 +19,14 @@ class SpecThenJudgeLLM:
     def complete_json(self, system_prompt, user_prompt, json_schema):
         self.calls += 1
         if "ready" in json_schema["properties"]:
-            return _response(query="Fernseher", plz="57074", radius_km=None, max_price_eur=200)
-        return _judgment(85 if "Grundig" in user_prompt else 20)
+            return spec_response(query="Fernseher", plz="57074", radius_km=None, max_price_eur=200)
+        return judgment_response(85 if "Grundig" in user_prompt else 20)
 
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # no .env here
-    settings = _settings(tmp_path)
+    settings = offline_settings(tmp_path)
     for key, value in {
         "DB_PATH": settings.db_path, "CACHE_DIR": settings.cache_dir, "DRY_RUN": "true",
         "LLM_MIN_INTERVAL_S": "0", "PLZ_CSV_PATH": PLZ_CSV, "HOME_PLZ": "57074",
@@ -38,7 +37,7 @@ def env(tmp_path, monkeypatch):
 
 
 def test_search_prints_spec_and_evaluations(env, capsys):
-    _cache_fixtures(env)
+    cache_search_fixtures(env)
     assert cli.main(["search", "Fernseher bis 200 Euro in Siegen"]) == 0
     out = capsys.readouterr().out
     assert 'Search: "Fernseher"' in out
@@ -52,7 +51,7 @@ def test_search_problem_exits_nonzero(env, capsys):
 
 
 def test_stats_and_export(env, capsys, tmp_path):
-    _cache_fixtures(env)
+    cache_search_fixtures(env)
     cli.main(["search", "Fernseher"])
     capsys.readouterr()
 

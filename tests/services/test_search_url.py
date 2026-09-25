@@ -1,7 +1,7 @@
 from urllib.parse import parse_qs, urlsplit
 
 from offer_finder.services.search_url import build_search_url
-from tests.conftest import make_spec
+from tests.helpers.factories import make_spec
 
 
 def _query(url: str) -> dict[str, list[str]]:

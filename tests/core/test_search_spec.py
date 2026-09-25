@@ -1,49 +1,19 @@
 import pytest
 
 from offer_finder.core.search_spec import SpecError, describe, next_turn
-from tests.conftest import make_spec
-
-
-class _FakeProvider:
-    def __init__(self, *responses):
-        self._responses = list(responses)
-        self.prompts: list[str] = []
-
-    def complete_json(self, system_prompt, user_prompt, json_schema):
-        self.prompts.append(user_prompt)
-        response = self._responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response
-
-
-def _response(**overrides):
-    values = {
-        "ready": True,
-        "question": None,
-        "query": "OLED 65 Zoll",
-        "product_summary": "65+ inch OLED TV",
-        "requirements": ["OLED", "65 inch or larger"],
-        "nice_to_have": [],
-        "min_price_eur": None,
-        "max_price_eur": 700,
-        "location_text": "Mainz",
-        "plz": "55116",
-        "radius_km": 30,
-    }
-    values.update(overrides)
-    return values
+from tests.helpers.factories import make_spec
+from tests.helpers.fakes import FakeProvider, spec_response
 
 
 def test_asks_follow_up_when_model_is_not_ready():
-    provider = _FakeProvider(_response(ready=False, question="Welches Budget?", query=None))
+    provider = FakeProvider(spec_response(ready=False, question="Welches Budget?", query=None))
     turn = next_turn([("user", "Ich will einen Fernseher")], provider, home_plz="10115")
     assert turn.question == "Welches Budget?"
     assert turn.spec is None
 
 
 def test_returns_spec_when_model_is_ready():
-    provider = _FakeProvider(_response())
+    provider = FakeProvider(spec_response())
     turn = next_turn([("user", "good 65+ OLED TV around Mainz under 700")], provider, home_plz="10115")
     assert turn.question is None
     assert turn.spec is not None
@@ -55,13 +25,13 @@ def test_returns_spec_when_model_is_ready():
 
 @pytest.mark.parametrize("plz", [None, "Mainz", "551"])
 def test_falls_back_to_home_plz_when_model_gives_no_valid_plz(plz):
-    provider = _FakeProvider(_response(plz=plz))
+    provider = FakeProvider(spec_response(plz=plz))
     turn = next_turn([("user", "OLED TV")], provider, home_plz="10115")
     assert turn.spec is not None and turn.spec.plz == "10115"
 
 
 def test_prompt_contains_whole_transcript():
-    provider = _FakeProvider(_response())
+    provider = FakeProvider(spec_response())
     history = [("user", "Fernseher"), ("assistant", "Welche Größe?"), ("user", "65 Zoll")]
     next_turn(history, provider, home_plz="10115")
     prompt = provider.prompts[0]
@@ -75,7 +45,7 @@ def test_at_question_limit_prompt_forbids_more_questions_and_spec_is_forced():
         ("assistant", "q2"), ("user", "a2"),
         ("assistant", "q3"), ("user", "a3"),
     ]
-    provider = _FakeProvider(_response(ready=False, question="q4?"))
+    provider = FakeProvider(spec_response(ready=False, question="q4?"))
     turn = next_turn(history, provider, home_plz="10115", max_questions=3)
     assert "Do not ask another question" in provider.prompts[0]
     assert turn.question is None
@@ -83,19 +53,19 @@ def test_at_question_limit_prompt_forbids_more_questions_and_spec_is_forced():
 
 
 def test_not_ready_without_question_or_query_is_an_error():
-    provider = _FakeProvider(_response(ready=False, question=None, query=None))
+    provider = FakeProvider(spec_response(ready=False, question=None, query=None))
     with pytest.raises(SpecError):
         next_turn([("user", "hm")], provider, home_plz="10115")
 
 
 def test_provider_failure_is_a_spec_error():
-    provider = _FakeProvider(RuntimeError("503"))
+    provider = FakeProvider(RuntimeError("503"))
     with pytest.raises(SpecError):
         next_turn([("user", "TV")], provider, home_plz="10115")
 
 
 def test_twice_invalid_response_is_a_spec_error():
-    provider = _FakeProvider({"ready": "maybe"}, {"ready": "maybe"})
+    provider = FakeProvider({"ready": "maybe"}, {"ready": "maybe"})
     with pytest.raises(SpecError):
         next_turn([("user", "TV")], provider, home_plz="10115")
 

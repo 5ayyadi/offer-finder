@@ -11,20 +11,8 @@ from offer_finder.core.evaluator import (
     verify_evidence,
 )
 from offer_finder.core.models import FieldValue
-from tests.conftest import make_checks, make_facts, make_judgment, make_listing, make_spec
-
-
-class _FakeProvider:
-    def __init__(self, *responses):
-        self._responses = list(responses)
-        self.prompts: list[str] = []
-
-    def complete_json(self, system_prompt, user_prompt, json_schema):
-        self.prompts.append(user_prompt)
-        response = self._responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response
+from tests.helpers.factories import make_checks, make_facts, make_judgment, make_listing, make_spec
+from tests.helpers.fakes import FakeProvider
 
 
 def _llm_response(**overrides):
@@ -143,14 +131,14 @@ def test_system_prompt_forbids_market_value_claims_and_requires_evidence():
 
 
 def test_evaluate_keeps_product_and_deal_quality_separate():
-    evaluation = _evaluate(_FakeProvider(_llm_response()))
+    evaluation = _evaluate(FakeProvider(_llm_response()))
     assert evaluation.judgment.product_assessment.verdict == "good"
     assert evaluation.judgment.deal_assessment.verdict == "poor"
     assert evaluation.judgment.product_assessment.summary != evaluation.judgment.deal_assessment.summary
 
 
 def test_evaluate_records_everything_needed_for_replay():
-    provider = _FakeProvider(_llm_response())
+    provider = FakeProvider(_llm_response())
     evaluation = _evaluate(provider)
     assert evaluation.user_prompt == provider.prompts[0]
     assert evaluation.raw_response == _llm_response()
@@ -160,28 +148,28 @@ def test_evaluate_records_everything_needed_for_replay():
 
 
 def test_evaluate_verifies_evidence_and_applies_threshold():
-    evaluation = _evaluate(_FakeProvider(_llm_response(score=75)), threshold=70)
+    evaluation = _evaluate(FakeProvider(_llm_response(score=75)), threshold=70)
     assert evaluation.judgment.highlights[0].verified is True
     assert evaluation.recommended is True
-    assert _evaluate(_FakeProvider(_llm_response(score=75)), threshold=80).recommended is False
+    assert _evaluate(FakeProvider(_llm_response(score=75)), threshold=80).recommended is False
 
 
 def test_evaluate_with_missing_price_keeps_it_null_in_prompt():
     facts = make_facts()
     facts.price_eur = FieldValue(value=None, source="none", confidence=0.0)
-    provider = _FakeProvider(_llm_response())
+    provider = FakeProvider(_llm_response())
     evaluate(make_listing(), make_spec(), 1, facts, make_checks(), provider, "m", 70)
     assert '"price_eur": null' in provider.prompts[0]
 
 
 def test_malformed_response_twice_is_an_evaluation_error():
     with pytest.raises(EvaluationError):
-        _evaluate(_FakeProvider(json.JSONDecodeError("x", "y", 0), {"score": 500}))
+        _evaluate(FakeProvider(json.JSONDecodeError("x", "y", 0), {"score": 500}))
 
 
 def test_provider_failure_is_an_evaluation_error():
     with pytest.raises(EvaluationError):
-        _evaluate(_FakeProvider(RuntimeError("429 Too Many Requests")))
+        _evaluate(FakeProvider(RuntimeError("429 Too Many Requests")))
 
 
 def test_prompt_includes_structured_attributes_and_they_are_citeable():

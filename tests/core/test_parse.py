@@ -11,7 +11,7 @@ from offer_finder.core.parse import (
     parse_detail_page,
     parse_search_results,
 )
-from tests.conftest import load_fixture, make_listing
+from tests.helpers.factories import load_fixture, make_listing
 
 # --- price ---------------------------------------------------------------
 

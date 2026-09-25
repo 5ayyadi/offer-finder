@@ -118,7 +118,9 @@ notifications recorded only after a successful send.
 - `make check` = ruff + mypy + pytest. Tests never touch the network: fetch,
   LLM, Gmail and Telegram are injected fakes (`fetcher=`, `provider=`,
   `client=`, fake bot). SQLite is real (in-memory / `tmp_path`).
-- Offline end-to-end tests cover both flows: `tests/test_app.py`
+- `tests/` mirrors the package layout; shared fakes and factories are in
+  `tests/helpers/`.
+- Offline end-to-end tests cover both flows: `tests/bot/test_app.py`
   (confirmed spec → real fetch layer in DRY_RUN over fixture HTML → DB →
   evaluation → fake Telegram; alert email → … → Telegram exactly once).
 - Evaluator replay: every evaluation stores the exact prompt, raw response

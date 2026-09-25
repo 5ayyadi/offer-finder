@@ -50,7 +50,8 @@ offer_finder/            the code; run from the repo root with `python -m offer_
   services/  external systems: fetch (Kleinanzeigen), search_url, llm (OpenAI-compatible), gmail
   storage/   db.py (SQLite)
   bot/       Telegram: app (process, background tasks, Gmail job), conversation, notify; `python -m offer_finder.bot`
-tests/       pytest; tests/fixtures/ = real, PII-redacted Kleinanzeigen HTML + a hand-built alert email
+tests/       pytest, mirrors the package; helpers/ = shared fakes + factories;
+             fixtures/ = real, PII-redacted Kleinanzeigen HTML + a hand-built alert email
 data/        plz_de.csv (committed); cache/, offer_finder.db, gmail_*.json (gitignored)
 docs/        ARCHITECTURE.md, DECISIONS.md, diagrams/ (Mermaid)
 local/       gitignored: the user's personal notes, guides, handoffs — put session handoffs and how-tos here
@@ -77,7 +78,13 @@ a redacted real alert once the user provides one.
 - `pytest` never touches the network. External systems are injected:
   `fetcher=` (Kleinanzeigen), `provider=` (LLM), `client=` (Gmail), a fake
   bot object (Telegram). SQLite is real (`:memory:` / `tmp_path`).
-- Offline end-to-end tests of both flows are in `tests/test_app.py`;
+- `tests/` mirrors the package (`core/ services/ storage/ bot/`, plus
+  `test_runner.py` / `test_cli.py` / `test_config.py` at the top). Shared
+  helpers live in `tests/helpers/`: `factories.py` (`make_*`, `load_fixture`),
+  `fakes.py` (fake fetcher, LLMs, Telegram bot, Gmail), `offline.py` (real
+  `Settings` + DRY_RUN cache filled with fixtures). `conftest.py` only holds
+  the in-memory `conn` fixture. Test files don't import from each other.
+- Offline end-to-end tests of both flows are in `tests/bot/test_app.py`;
   `tests/test_runner.py` exercises the real fetch layer via DRY_RUN over a
   temporary cache filled with fixtures.
 - `make check` = ruff + mypy + pytest; keep it green.

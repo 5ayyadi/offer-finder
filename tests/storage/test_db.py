@@ -1,15 +1,7 @@
 import pytest
 
 from offer_finder.storage import db
-from tests.conftest import make_evaluation, make_listing, make_spec
-
-
-@pytest.fixture
-def conn():
-    connection = db.connect(":memory:")
-    db.init_db(connection)
-    yield connection
-    connection.close()
+from tests.helpers.factories import make_evaluation, make_listing, make_spec
 
 
 def test_init_db_is_idempotent(conn):

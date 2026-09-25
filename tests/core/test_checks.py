@@ -1,6 +1,6 @@
 from offer_finder.core.checks import compute_checks
 from offer_finder.core.models import FieldValue
-from tests.conftest import make_facts, make_spec
+from tests.helpers.factories import make_facts, make_spec
 
 # Mainz 55116 and Mainz 55118 are ~2 km apart; Wiesbaden 65183 ~10 km, Frankfurt 60311 ~35 km
 PLZ_TABLE = {

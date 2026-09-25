@@ -4,7 +4,7 @@ from offer_finder.core.redflags import (
     detect_shipping_only,
     hints,
 )
-from tests.conftest import load_fixture
+from tests.helpers.factories import load_fixture
 
 # --- detection ---------------------------------------------------------------
 
