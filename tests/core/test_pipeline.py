@@ -2,6 +2,8 @@
 SQLite DB. Nothing here touches the network."""
 
 
+import logging
+
 from offer_finder.core.models import ListingRef
 from offer_finder.core.pipeline import Pipeline
 from offer_finder.services.fetch import BudgetExhausted, FetchFailed
@@ -39,6 +41,30 @@ def _status(conn, listing_id):
 
 
 # --- interactive search path ---------------------------------------------------
+
+
+def test_search_logs_each_step_and_every_verdict(conn, caplog):
+    spec_id, spec = _spec(conn)
+    with caplog.at_level(logging.INFO):
+        _pipeline(conn).run_search(spec_id, spec)
+    log = caplog.text
+    assert f"search {spec_id}: results page has 2 listings (2 new, 0 outside price/radius)" in log
+    assert f"search {spec_id}: fetching 2 detail pages" in log
+    assert f"search {spec_id}: evaluating 2 listings" in log
+    verdicts = [r.getMessage() for r in caplog.records if "/100 " in r.getMessage()]
+    assert verdicts[0].startswith(f'search {spec_id}: 85/100 {GRUNDIG_ID} "Grundig')
+    assert verdicts[0].endswith("99 € → recommended")
+    assert verdicts[1].startswith(f"search {spec_id}: 20/100 {SAMSUNG_ID}")
+    assert verdicts[1].endswith("→ skipped: below 70")
+
+
+def test_budget_stop_is_logged_as_a_warning(conn, caplog):
+    spec_id, spec = _spec(conn)
+    fetcher = FakeFetcher(fail={SAMSUNG_ID: BudgetExhausted("cap of 2 reached")})
+    with caplog.at_level(logging.INFO):
+        _pipeline(conn, fetcher=fetcher).run_search(spec_id, spec)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(f"search {spec_id}: request budget reached" in message for message in warnings)
 
 
 def test_search_stores_fetches_and_evaluates_every_card(conn):

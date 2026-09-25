@@ -52,7 +52,7 @@ offer_finder/            the code; run from the repo root with `python -m offer_
   bot/       Telegram: app (process, background tasks, Gmail job), conversation, notify; `python -m offer_finder.bot`
 tests/       pytest, mirrors the package; helpers/ = shared fakes + factories;
              fixtures/ = real, PII-redacted Kleinanzeigen HTML + a hand-built alert email
-data/        plz_de.csv (committed); cache/, offer_finder.db, gmail_*.json (gitignored)
+data/        plz_de.csv (committed); cache/, logs/, offer_finder.db, gmail_*.json (gitignored)
 docs/        ARCHITECTURE.md, DECISIONS.md, diagrams/ (Mermaid)
 local/       gitignored: the user's personal notes, guides, handoffs — put session handoffs and how-tos here
 .cache/      gitignored: all tool caches (pytest, ruff, mypy, bytecode via make)
@@ -89,12 +89,20 @@ a redacted real alert once the user provides one.
   temporary cache filled with fixtures.
 - `make check` = ruff + mypy + pytest; keep it green.
 
+## Logs
+
+To see what the bot did, **read `data/logs/offer_finder.log` first** (gitignored,
+rotating; the terminal shows the same lines). Lines are tagged `chat <id>`,
+`search <spec id>`, `email <id>` / `gmail`, so one request can be followed from
+the message to the notifications. New steps get one INFO line; problems a
+WARNING. Per-request detail goes at DEBUG (`LOG_LEVEL=DEBUG`). Keep it at that level.
+
 ## Secrets
 
 `.env`, `data/gmail_credentials.json`, `data/gmail_token.json` and
 `data/offer_finder.db` are gitignored. Only `.env.example` (placeholders) is
-committed. The bot sets the `httpx` logger to WARNING because its INFO lines
-contain the bot token.
+committed. `setup_logging()` keeps the `httpx` and `httpcore` loggers at WARNING because
+their INFO lines contain the bot token.
 
 ## Deliberately not built
 

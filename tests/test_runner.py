@@ -1,6 +1,8 @@
 """Real wiring (Settings -> fetch_page/RequestGate -> pipeline -> SQLite),
 kept offline by DRY_RUN serving fixture HTML from a temporary cache."""
 
+import logging
+
 from offer_finder import runner
 from offer_finder.services.fetch import BudgetExhausted, _cache_write
 from offer_finder.services.gmail import EmailMessage
@@ -119,6 +121,39 @@ def test_email_cut_short_by_the_budget_is_resumed_next_poll(tmp_path):
     assert second.report.stopped_reason is None
     assert db.get_listing(conn, SAMSUNG_ID).status == "fetched"
     assert db.gmail_message_seen(conn, "m1")
+
+
+def test_each_new_email_is_logged_with_its_listings_and_spec(tmp_path, caplog):
+    settings = offline_settings(tmp_path)
+    cache_email_details(settings)
+    with caplog.at_level(logging.INFO):
+        runner.poll_gmail_once(settings, ScriptedLLM(), alert_gmail())
+    assert "gmail: 1 new email(s)" in caplog.text
+    assert "email m1: 2 listing(s), no matching spec" in caplog.text
+
+
+# --- logging setup ----------------------------------------------------------------
+
+
+def test_setup_logging_writes_a_log_file_without_the_bot_token(tmp_path):
+    log_path = tmp_path / "logs" / "offer_finder.log"
+    settings = offline_settings(tmp_path, log_path=str(log_path))
+    runner.setup_logging(settings)
+    runner.setup_logging(settings)  # calling it again must not duplicate lines
+
+    logging.getLogger("offer_finder.core.pipeline").info("search 7: fetching 3 detail pages")
+    logging.getLogger("httpx").info("POST https://api.telegram.org/bot123:SECRET/getUpdates")
+
+    text = log_path.read_text(encoding="utf-8")
+    assert text.count("search 7: fetching 3 detail pages") == 1
+    assert "SECRET" not in text
+
+
+def test_log_level_debug_shows_the_detail_lines(tmp_path):
+    log_path = tmp_path / "offer_finder.log"
+    runner.setup_logging(offline_settings(tmp_path, log_path=str(log_path), log_level="DEBUG"))
+    logging.getLogger("offer_finder.services.fetch").debug("cache hit https://example")
+    assert "cache hit https://example" in log_path.read_text(encoding="utf-8")
 
 
 def test_email_without_listing_links_is_counted_so_format_changes_are_visible(tmp_path):

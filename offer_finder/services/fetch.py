@@ -8,11 +8,14 @@ persisted backoff state machine, and a flat on-disk HTML cache.
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 PageType = Literal["search", "detail"]
 FetchOutcome = Literal["ok", "throttled", "suspicious", "blocked"]
@@ -162,6 +165,7 @@ def fetch_page(
 
     cached = _cache_read(cache_dir, url, max_age_s=None if dry_run else cache_ttl_s)
     if cached is not None:
+        logger.debug("cache hit %s", url)
         return cached
 
     if dry_run:
@@ -171,6 +175,7 @@ def fetch_page(
     status_code, html = http_get(url)
     outcome = classify_response(status_code, html)
     gate.record_result(outcome)
+    logger.debug("GET %s %s -> %d %s", page_type, url, status_code, outcome)
 
     if outcome != "ok":
         raise FetchFailed(outcome)

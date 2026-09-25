@@ -8,12 +8,15 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass, field
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from offer_finder.config import Settings
 from offer_finder.core import distance
 from offer_finder.core.email_parse import extract_listing_refs, html_to_text, match_spec
 from offer_finder.core.models import SearchSpec
 from offer_finder.core.pipeline import Fetcher, Pipeline, RunReport
+from offer_finder.core.search_spec import log_line
 from offer_finder.services.fetch import (
     BudgetExhausted,
     CacheMiss,
@@ -29,6 +32,30 @@ from offer_finder.services.llm import LLMProvider, OpenAICompatProvider
 from offer_finder.storage import db
 
 logger = logging.getLogger(__name__)
+
+
+_LOG_FORMAT = "%(asctime)s %(levelname)-7s %(module)-12s %(message)s"
+_QUIET_LOGGERS = ("httpx", "httpcore", "apscheduler")  # httpx logs URLs that contain the bot token
+
+
+def setup_logging(settings: Settings) -> None:
+    """Terminal + rotating file (settings.log_path). Safe to call twice."""
+    root = logging.getLogger()
+    for handler in [h for h in root.handlers if getattr(h, "offer_finder", False)]:
+        root.removeHandler(handler)
+        handler.close()
+
+    Path(settings.log_path).parent.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(settings.log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    formatter = logging.Formatter(_LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+    handlers: list[logging.Handler] = [logging.StreamHandler(), file_handler]
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        handler.offer_finder = True  # type: ignore[attr-defined]
+        root.addHandler(handler)
+    root.setLevel(settings.log_level.upper())
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def make_provider(settings: Settings) -> OpenAICompatProvider:
@@ -113,11 +140,14 @@ def run_search_once(
     conn = open_db(settings)
     try:
         search_spec_id = db.insert_search_spec(conn, chat_id, spec)
+        logger.info("search %d (chat %d): %s", search_spec_id, chat_id, log_line(spec))
         pipeline = make_pipeline(settings, conn, provider, fetcher)
         try:
             report = pipeline.run_search(search_spec_id, spec)
         except _STOP_ERRORS as exc:
-            return SearchOutcome(search_spec_id, RunReport(), error=explain_stop(exc))
+            error = explain_stop(exc)
+            logger.warning("search %d stopped: %s", search_spec_id, error)
+            return SearchOutcome(search_spec_id, RunReport(), error=error)
         return SearchOutcome(search_spec_id, report)
     finally:
         conn.close()
@@ -153,9 +183,12 @@ def poll_gmail_once(
     try:
         pipeline = make_pipeline(settings, conn, provider, fetcher)
         specs = db.active_search_specs(conn)
-        for message_id in client.list_message_ids(settings.gmail_query):
-            if db.gmail_message_seen(conn, message_id):
-                continue
+        new_ids = [m for m in client.list_message_ids(settings.gmail_query) if not db.gmail_message_seen(conn, m)]
+        if new_ids:
+            logger.info("gmail: %d new email(s)", len(new_ids))
+        else:
+            logger.debug("gmail: no new emails")
+        for message_id in new_ids:
             message = client.get_message(message_id)
             refs = extract_listing_refs(message.html)
             if not refs:
@@ -167,10 +200,15 @@ def poll_gmail_once(
                 )
             match = match_spec(f"{message.subject} {html_to_text(message.html)}", specs)
             search_spec_id, spec = match if match else (None, None)
+            logger.info(
+                'email %s: %d listing(s), %s — "%s"',
+                message_id, len(refs), f"spec {search_spec_id}" if match else "no matching spec", message.subject,
+            )
             try:
-                report = pipeline.process_email(refs, search_spec_id, spec)
+                report = pipeline.process_email(refs, search_spec_id, spec, label=f"email {message_id}")
             except _STOP_ERRORS as exc:
                 outcome.error = explain_stop(exc)
+                logger.warning("gmail poll stopped: %s", outcome.error)
                 break
             _add_report(outcome.report, report)
             outcome.messages += 1

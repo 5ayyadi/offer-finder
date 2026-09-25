@@ -7,11 +7,15 @@ values). Prompts and schemas live with their callers
 from __future__ import annotations
 
 import json
+import logging
 import re
+import time
 from typing import Any, Literal, Protocol, TypeVar
 
 import httpx
 from pydantic import BaseModel, ValidationError
+
+logger = logging.getLogger(__name__)
 
 ResponseFormat = Literal["json_schema", "json_object"]
 
@@ -58,6 +62,7 @@ class OpenAICompatProvider:
             response_format = {"type": "json_object"}
             system_prompt = f"{system_prompt}\n\nReply with one JSON object matching this JSON schema:\n{json.dumps(json_schema)}"
 
+        started = time.monotonic()
         response = self._client.post(
             f"{self._base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self._api_key}"} if self._api_key else {},
@@ -70,6 +75,7 @@ class OpenAICompatProvider:
                 "response_format": response_format,
             },
         )
+        logger.debug("LLM %s answered %d in %.1fs", self.model, response.status_code, time.monotonic() - started)
         if response.is_error:  # keep the endpoint's explanation (bad key, rejected schema, rate limit)
             raise httpx.HTTPStatusError(
                 f"{response.status_code} from LLM endpoint: {response.text[:500]}",
@@ -96,5 +102,6 @@ def complete_validated(
             raw = provider.complete_json(system_prompt, user_prompt, json_schema)
             return model_cls.model_validate(raw), raw
         except (json.JSONDecodeError, ValidationError) as exc:
+            logger.warning("LLM response was invalid (%s), %s", type(exc).__name__, "retrying" if _attempt == 0 else "giving up")
             last_error = exc
     raise LLMResponseError(f"invalid LLM response after retry: {last_error}") from last_error

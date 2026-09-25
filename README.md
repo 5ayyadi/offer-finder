@@ -78,6 +78,10 @@ Message your bot: describe what you want → answer its question(s) → press
 the Kleinanzeigen link for saving the search. Only users in
 `TELEGRAM_ALLOWLIST` get any reply.
 
+The terminal shows what the bot is doing: one line per step, tagged `chat <id>`
+or `search <id>`. The same lines go to `data/logs/offer_finder.log`.
+`LOG_LEVEL=DEBUG` also shows every fetch and LLM call.
+
 ### 4. Gmail monitoring
 
 1. Use a dedicated Gmail address for the Kleinanzeigen account whose saved-search

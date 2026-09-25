@@ -113,7 +113,18 @@ truth; store every listing; LLM judges, Python computes; claims need
 verified evidence; product vs deal kept separate; one fetch choke point;
 notifications recorded only after a successful send.
 
-## 7. Testing and local setup
+## 7. Logs
+
+`runner.setup_logging()` (bot and CLI) writes to the terminal and to a rotating
+file, `LOG_PATH` (default `data/logs/offer_finder.log`, gitignored). At INFO
+there is one line per step, tagged with the request: `chat <id>` (conversation),
+`search <spec id>` (results page, detail fetches, one line per evaluated listing
+with score and why it was or wasn't recommended, `done in …`), and
+`email <message id>` / `gmail` for alert emails. Problems are WARNINGs.
+`LOG_LEVEL=DEBUG` adds every Kleinanzeigen fetch and LLM call. `httpx`/`httpcore`
+are always WARNING, because their INFO lines contain the bot token.
+
+## 8. Testing and local setup
 
 - `make check` = ruff + mypy + pytest. Tests never touch the network: fetch,
   LLM, Gmail and Telegram are injected fakes (`fetcher=`, `provider=`,

@@ -3,11 +3,13 @@ confirmed spec -> real fetch layer (DRY_RUN cache) -> DB -> evaluation ->
 Telegram messages (fake bot)."""
 
 import asyncio
+import logging
+import re
 
 from telegram.ext import ConversationHandler
 
 from offer_finder.bot.app import build_application, search_and_notify
-from tests.helpers.fakes import FakeBot, ScriptedLLM, alert_gmail
+from tests.helpers.fakes import GRUNDIG_ID, FakeBot, ScriptedLLM, alert_gmail
 from tests.helpers.offline import (
     cache_email_details,
     cache_search_fixtures,
@@ -32,6 +34,16 @@ def test_confirmed_search_sends_the_good_listing_then_a_summary(tmp_path):
     assert "85/100" in caption and "Grundig" in caption
     summary = bot.sent[1][1]["text"]
     assert "Checked 2 listings: 2 evaluated, 1 recommended." in summary
+
+
+def test_search_start_and_end_are_logged(tmp_path, caplog):
+    settings = offline_settings(tmp_path)
+    cache_search_fixtures(settings)
+    with caplog.at_level(logging.INFO):
+        _run_search(settings, FakeBot())
+    assert 'search 1 (chat 42): "Fernseher"' in caplog.text
+    assert f"chat 42: sent {GRUNDIG_ID} (85/100)" in caplog.text
+    assert re.search(r"search 1 done in \d+s: 2 found, 2 evaluated, 1 recommended, 1 sent", caplog.text)
 
 
 def test_repeating_the_search_does_not_resend_the_listing(tmp_path):

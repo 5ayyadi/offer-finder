@@ -27,7 +27,7 @@ from telegram.warnings import PTBUserWarning
 
 from offer_finder.config import Settings
 from offer_finder.core.models import SearchSpec
-from offer_finder.core.search_spec import SpecError, describe, next_turn
+from offer_finder.core.search_spec import SpecError, describe, log_line, next_turn
 
 logger = logging.getLogger(__name__)
 
@@ -83,23 +83,28 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     history = chat_data.setdefault("history", [])
     if "spec" in chat_data:  # typed instead of pressing a button: treat it as a change request
         history.append(("assistant", _proposal(chat_data.pop("spec"))))
-    history.append(("user", update.message.text or ""))
+    text = update.message.text or ""
+    history.append(("user", text))
+    chat_id = update.effective_chat.id if update.effective_chat else 0
+    logger.info('chat %d: message "%s"', chat_id, text[:100])
 
     settings: Settings = context.bot_data["settings"]
     try:
         turn = await asyncio.to_thread(next_turn, list(history), context.bot_data["llm"], settings.home_plz)
     except SpecError as exc:
         history.pop()
-        logger.warning("%s", exc)
+        logger.warning("chat %d: %s", chat_id, exc)
         await update.message.reply_text(_spec_failure_text(exc))
         return COLLECTING
 
     if turn.question:
         history.append(("assistant", turn.question))
+        logger.info('chat %d: asked "%s"', chat_id, turn.question)
         await update.message.reply_text(turn.question)
         return COLLECTING
 
     assert turn.spec is not None
+    logger.info("chat %d: proposed search %s", chat_id, log_line(turn.spec))
     chat_data["spec"] = turn.spec
     await update.message.reply_text(
         f"{describe(turn.spec)}\n\nSearch Kleinanzeigen for this?", reply_markup=CONFIRM_KEYBOARD
@@ -117,23 +122,28 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await query.answer()
     chat_data: dict[str, Any] = context.chat_data  # type: ignore[assignment]
     spec: SearchSpec | None = chat_data.get("spec")
+    assert update.effective_chat is not None
+    chat_id = update.effective_chat.id
     if spec is None:
+        logger.info("chat %d: button pressed for an expired search", chat_id)
         await _reply(query, "That search has expired. Tell me again what you're looking for.")
         return ConversationHandler.END
 
     await query.edit_message_reply_markup(reply_markup=None)
     if query.data == "search":
         chat_data.clear()
+        logger.info("chat %d: search confirmed", chat_id)
         await _reply(query, "Searching Kleinanzeigen. I'll send the good ones here.")
-        assert update.effective_chat is not None
-        await context.bot_data["start_search"](update.effective_chat.id, spec)
+        await context.bot_data["start_search"](chat_id, spec)
         return ConversationHandler.END
     if query.data == "change":
         chat_data.setdefault("history", []).append(("assistant", _proposal(chat_data.pop("spec"))))
+        logger.info("chat %d: change requested", chat_id)
         await _reply(query, "What should I change?")
         return COLLECTING
 
     chat_data.clear()
+    logger.info("chat %d: cancelled", chat_id)
     await _reply(query, "Cancelled.")
     return ConversationHandler.END
 

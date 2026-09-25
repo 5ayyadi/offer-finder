@@ -146,6 +146,17 @@ def test_cancel_button_ends_without_searching():
     assert context.chat_data == {}
 
 
+def test_request_trail_is_logged_from_message_to_confirmed_search(caplog):
+    context = FakeContext(spec_response())
+    with caplog.at_level(logging.INFO):
+        run(on_text(_update("good 65+ OLED TV around Mainz under 700"), context))
+        run(on_button(_update(query=FakeQuery("search")), context))
+    log = caplog.text
+    assert f'chat {ALLOWED_ID}: message "good 65+ OLED TV around Mainz under 700"' in log
+    assert f'chat {ALLOWED_ID}: proposed search "OLED 65 Zoll"' in log
+    assert f"chat {ALLOWED_ID}: search confirmed" in log
+
+
 def test_unusable_message_asks_to_rephrase_and_forgets_it():
     context = FakeContext(spec_response(query=None))  # neither a question nor a search
     update = _update("???")

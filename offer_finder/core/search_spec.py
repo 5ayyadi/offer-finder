@@ -127,17 +127,29 @@ def next_turn(
     )
 
 
-def describe(spec: SearchSpec) -> str:
+def _price_text(spec: SearchSpec) -> str:
     if spec.min_price_eur is not None and spec.max_price_eur is not None:
-        price = f"€{spec.min_price_eur}–€{spec.max_price_eur}"
-    elif spec.max_price_eur is not None:
-        price = f"up to €{spec.max_price_eur}"
-    elif spec.min_price_eur is not None:
-        price = f"from €{spec.min_price_eur}"
-    else:
-        price = "any price"
+        return f"€{spec.min_price_eur}–€{spec.max_price_eur}"
+    if spec.max_price_eur is not None:
+        return f"up to €{spec.max_price_eur}"
+    if spec.min_price_eur is not None:
+        return f"from €{spec.min_price_eur}"
+    return "any price"
+
+
+def _distance_text(spec: SearchSpec) -> str:
+    return f"within {spec.radius_km} km" if spec.radius_km is not None else "any distance"
+
+
+def log_line(spec: SearchSpec) -> str:
+    """The spec on one line, for the logs."""
+    return f'"{spec.query}", {_price_text(spec)}, PLZ {spec.plz} {_distance_text(spec)}'
+
+
+def describe(spec: SearchSpec) -> str:
+    price = _price_text(spec)
     place = f"{spec.location_text} (PLZ {spec.plz})" if spec.location_text else f"PLZ {spec.plz}"
-    distance = f"within {spec.radius_km} km" if spec.radius_km is not None else "any distance"
+    distance = _distance_text(spec)
 
     lines = [
         f'Search: "{spec.query}"',

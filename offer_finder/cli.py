@@ -14,7 +14,6 @@ import argparse
 import asyncio
 import csv
 import json
-import logging
 import sys
 from pathlib import Path
 
@@ -164,8 +163,8 @@ def main(argv: list[str] | None = None) -> int:
     export.add_argument("path")
 
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    settings = Settings()
+    runner.setup_logging(settings)
     commands = {
         "search": cmd_search,
         "gmail-auth": cmd_gmail_auth,
@@ -173,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         "stats": cmd_stats,
         "export": cmd_export,
     }
-    return commands[args.command](Settings(), args)
+    return commands[args.command](settings, args)
 
 
 if __name__ == "__main__":

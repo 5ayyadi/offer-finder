@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     plz_csv_path: str = "data/plz_de.csv"
     cache_dir: str = "data/cache"
 
+    # Logging: terminal + a rotating file. DEBUG adds every fetch and LLM call.
+    log_level: str = "INFO"
+    log_path: str = "data/logs/offer_finder.log"
+
     @field_validator("telegram_notify_chat_id", mode="before")
     @classmethod
     def _blank_is_unset(cls, value: Any) -> Any:

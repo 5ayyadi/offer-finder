@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from telegram import Bot
 from telegram.ext import Application
@@ -27,7 +28,10 @@ logger = logging.getLogger(__name__)
 async def search_and_notify(
     bot: Sender, settings: Settings, llm: LLMProvider, lock: asyncio.Lock, chat_id: int, spec: SearchSpec
 ) -> None:
+    started = time.monotonic()
     try:
+        if lock.locked():
+            logger.info("chat %d: waiting for the running search or Gmail poll to finish", chat_id)
         async with lock:
             outcome = await asyncio.to_thread(runner.run_search_once, settings, llm, chat_id, spec)
         if outcome.error:
@@ -38,6 +42,12 @@ async def search_and_notify(
             sent = await send_pending(bot, conn, chat_id, outcome.search_spec_id)
         finally:
             conn.close()
+        report = outcome.report
+        logger.info(
+            "search %d done in %ds: %d found, %d evaluated, %d recommended, %d sent",
+            outcome.search_spec_id, time.monotonic() - started, report.found, report.evaluated,
+            report.recommended, sent,
+        )
         summary = format_summary(outcome.report, sent, settings.recommendation_threshold)
         save_hint = f"To get new matches by email, save this search on Kleinanzeigen:\n{build_search_url(spec)}"
         await bot.send_message(chat_id, f"{summary}\n\n{save_hint}")
@@ -93,11 +103,15 @@ def build_application(settings: Settings, gmail_client: GmailClient | None = Non
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    logging.getLogger("httpx").setLevel(logging.WARNING)  # its INFO lines include the bot token in URLs
     settings = Settings()
+    runner.setup_logging(settings)
     if not settings.telegram_bot_token or not settings.telegram_allowlist:
         raise SystemExit("Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWLIST in .env first.")
+    logger.info(
+        "bot starting: model %s, threshold %d, dry_run %s, gmail %s, log file %s",
+        settings.llm_model, settings.recommendation_threshold, settings.dry_run,
+        "on" if settings.gmail_enabled else "off", settings.log_path,
+    )
     build_application(settings).run_polling()
 
 

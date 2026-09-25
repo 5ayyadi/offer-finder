@@ -85,6 +85,7 @@ async def send_pending(
             logger.warning("notification for %s failed, will retry: %s", listing.listing_id, exc)
             continue
         db.record_notification(conn, listing.listing_id, chat_id, evaluation_id)
+        logger.info("chat %d: sent %s (%d/100)", chat_id, listing.listing_id, evaluation.judgment.score)
         sent += 1
     return sent
 

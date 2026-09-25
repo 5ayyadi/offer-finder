@@ -19,7 +19,7 @@ from typing import Protocol
 from offer_finder.core.checks import compute_checks
 from offer_finder.core.distance import PlzTable, plz_distance_km
 from offer_finder.core.evaluator import EvaluationError, evaluate
-from offer_finder.core.models import Listing, ListingRef, SearchSpec
+from offer_finder.core.models import Evaluation, Listing, ListingRef, SearchSpec
 from offer_finder.core.parse import (
     extract_facts,
     extract_plz,
@@ -116,13 +116,22 @@ class Pipeline:
             if not in_range:
                 report.out_of_range += 1
 
+        label = f"search {search_spec_id}"
+        logger.info(
+            "%s: results page has %d listings (%d new, %d outside price/radius)",
+            label, report.found, report.new, report.out_of_range,
+        )
         ids = [card.listing_id for card in cards]
-        self._fetch_details(ids, report)
-        self.evaluate_pending(search_spec_id, spec, ids, report)
+        self._fetch_details(ids, report, label)
+        self.evaluate_pending(search_spec_id, spec, ids, report, label)
         return report
 
     def process_email(
-        self, refs: list[ListingRef], search_spec_id: int | None, spec: SearchSpec | None
+        self,
+        refs: list[ListingRef],
+        search_spec_id: int | None,
+        spec: SearchSpec | None,
+        label: str = "email",
     ) -> RunReport:
         report = RunReport(found=len(refs))
         for ref in refs:
@@ -138,28 +147,34 @@ class Pipeline:
                 report.new += 1
 
         ids = [ref.listing_id for ref in refs]
-        self._fetch_details(ids, report)
-        self.evaluate_pending(search_spec_id, spec, ids, report)
+        self._fetch_details(ids, report, label)
+        self.evaluate_pending(search_spec_id, spec, ids, report, label)
         return report
 
-    def _fetch_details(self, listing_ids: list[str], report: RunReport) -> None:
+    def _fetch_details(self, listing_ids: list[str], report: RunReport, label: str) -> None:
         """Fetch detail pages for listings still 'discovered'. Stops early (but
         keeps what it has) when the request budget runs out; TooManyFailures
         and KillSwitchActive propagate and abort the run."""
-        for listing_id in listing_ids:
-            listing = db.get_listing(self.conn, listing_id)
-            if listing is None or listing.status != "discovered":
-                continue
+        listings = [db.get_listing(self.conn, listing_id) for listing_id in listing_ids]
+        to_fetch = [listing for listing in listings if listing is not None and listing.status == "discovered"]
+        if to_fetch:
+            logger.info("%s: fetching %d detail pages", label, len(to_fetch))
+        for done, listing in enumerate(to_fetch):
+            listing_id = listing.listing_id
             try:
                 html = self.fetcher(listing.url, "detail")
                 page = parse_detail_page(html)
             except BudgetExhausted as exc:
                 report.stopped_reason = f"request budget reached ({exc}); the rest will be fetched next run"
+                logger.warning(
+                    "%s: request budget reached after %d detail pages; %d wait for the next run",
+                    label, done, len(to_fetch) - done,
+                )
                 return
             except CacheMiss:
                 continue  # DRY_RUN without a cached copy: leave it for a live run
             except (FetchFailed, ValueError) as exc:
-                logger.warning("detail fetch for %s failed: %s", listing_id, exc)
+                logger.warning("%s: detail fetch for %s failed: %s", label, listing_id, exc)
                 db.set_listing_status(self.conn, listing_id, "fetch_failed")
                 report.fetch_failed += 1
                 continue
@@ -191,8 +206,11 @@ class Pipeline:
         spec: SearchSpec | None,
         listing_ids: list[str],
         report: RunReport,
+        label: str = "evaluate",
     ) -> None:
         pending = db.listings_pending_evaluation(self.conn, search_spec_id, listing_ids)
+        if pending:
+            logger.info("%s: evaluating %d listings with %s", label, len(pending), self.model_name)
         for index, listing in enumerate(pending):
             if index > 0 and self.llm_min_interval_s > 0:
                 self.sleep_fn(self.llm_min_interval_s)
@@ -203,7 +221,7 @@ class Pipeline:
                     listing, spec, search_spec_id, facts, checks, self.provider, self.model_name, self.threshold
                 )
             except EvaluationError as exc:
-                logger.warning("%s", exc)
+                logger.warning("%s: %s", label, exc)
                 report.evaluation_failed += 1
                 continue
 
@@ -212,6 +230,22 @@ class Pipeline:
             report.recommended += int(evaluation.recommended)
             score = evaluation.judgment.score
             report.best_score = score if report.best_score is None else max(report.best_score, score)
+            logger.info(
+                '%s: %d/100 %s "%s" %s → %s',
+                label, score, listing.listing_id, listing.title[:50], listing.price_raw or "no price",
+                _outcome(evaluation, self.threshold),
+            )
+
+
+def _outcome(evaluation: Evaluation, threshold: int) -> str:
+    """Why a listing was or wasn't recommended, mirroring is_recommended()."""
+    if evaluation.recommended:
+        return "recommended"
+    if evaluation.checks.hard_fail_reasons:
+        return "skipped: " + "; ".join(evaluation.checks.hard_fail_reasons)
+    if evaluation.judgment.product_assessment.requirements_match == "mismatch":
+        return "skipped: doesn't match the requirements"
+    return f"skipped: below {threshold}"
 
 
 def _status(conn: sqlite3.Connection, listing_id: str) -> str | None:
