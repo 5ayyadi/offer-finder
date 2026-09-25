@@ -25,7 +25,7 @@ from offer_finder.core.models import (
 )
 from offer_finder.services.llm import LLMProvider, complete_validated
 
-EVALUATOR_PROMPT_VERSION = "2026-09-25.1"
+EVALUATOR_PROMPT_VERSION = "2026-09-25.2"
 
 SYSTEM_PROMPT = """You evaluate one Kleinanzeigen.de listing (German classifieds) for a buyer. Judge two things separately:
 
@@ -45,7 +45,10 @@ Grounding rules:
 
 score (0-100): how worthwhile it is for this buyer to contact the seller. 80+ strong candidate, 60-79 worth a look, below 60 not worth it. A clear requirements mismatch or a serious red flag belongs below 40.
 confidence: how sure you can be, given how much the listing says.
-Write all summaries and claims in short English."""
+Write in English and keep it short, it is read on a phone:
+- each highlight and concern claim: a phrase of at most 6 words, like "Remote included" or "Small pixel defect on the edge"
+- each unknown: at most 4 words, like "model year" or "power cable included"
+- each summary: one short sentence."""
 
 _VERDICT = {"type": "string", "enum": ["good", "ok", "poor", "unclear"]}
 _CLAIM_PROPERTIES = {"claim": {"type": "string"}, "evidence": {"type": "string"}}
