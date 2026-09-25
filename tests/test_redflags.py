@@ -1,8 +1,8 @@
-from core.scam import (
+from core.redflags import (
     detect_defect_keywords,
     detect_payment_red_flags,
     detect_shipping_only,
-    penalty_for,
+    hints,
 )
 from tests.conftest import load_fixture
 
@@ -42,64 +42,6 @@ def test_detect_defect_keywords_none_found():
     assert detect_defect_keywords("TV funktioniert einwandfrei, keine Mängel") == []
 
 
-# --- penalty scoring -----------------------------------------------------------
-
-
-def test_penalty_for_clean_listing_is_zero():
-    penalty, triggered = penalty_for(
-        shipping_only=False, payment_method_mentions=[], defect_keywords_found=[]
-    )
-    assert penalty == 0
-    assert triggered == []
-
-
-def test_penalty_for_shipping_only():
-    penalty, triggered = penalty_for(
-        shipping_only=True, payment_method_mentions=[], defect_keywords_found=[]
-    )
-    assert penalty == 15
-    assert "shipping-only" in triggered
-
-
-def test_penalty_for_nachnahme():
-    penalty, _triggered = penalty_for(
-        shipping_only=False, payment_method_mentions=["Nachnahme"], defect_keywords_found=[]
-    )
-    assert penalty == 20
-
-
-def test_penalty_for_friends_and_family_is_worse_than_nachnahme():
-    penalty_ff, _ = penalty_for(
-        shipping_only=False,
-        payment_method_mentions=["PayPal Freunde und Familie"],
-        defect_keywords_found=[],
-    )
-    penalty_nn, _ = penalty_for(
-        shipping_only=False, payment_method_mentions=["Nachnahme"], defect_keywords_found=[]
-    )
-    assert penalty_ff > penalty_nn
-
-
-def test_penalty_for_defect_keywords_stack():
-    penalty, triggered = penalty_for(
-        shipping_only=False,
-        payment_method_mentions=[],
-        defect_keywords_found=["Displaybruch", "Bastler"],
-    )
-    assert penalty == 30
-    assert "Displaybruch" in triggered
-    assert "Bastler" in triggered
-
-
-def test_penalty_for_is_capped_at_100():
-    penalty, _ = penalty_for(
-        shipping_only=True,
-        payment_method_mentions=["Nachnahme", "PayPal Freunde und Familie"],
-        defect_keywords_found=["Displaybruch", "Bastler", "defekt", "Ersatzteil", "Riss"],
-    )
-    assert penalty == 100
-
-
 # --- integration against the scam fixture --------------------------------------
 
 
@@ -114,3 +56,12 @@ def test_scam_fixture_triggers_all_signal_types():
     assert "PayPal Freunde und Familie" in detect_payment_red_flags(description)
     assert "Displaybruch" in detect_defect_keywords(description)
     assert "Bastler" in detect_defect_keywords(description)
+
+
+def test_hints_combines_all_detectors_into_labels():
+    text = "Nur Versand. Zahlung per Nachnahme. Displaybruch, für Bastler."
+    assert hints(text) == ["shipping only", "Nachnahme", "Displaybruch", "Bastler"]
+
+
+def test_hints_empty_for_clean_text():
+    assert hints("Abholung in Mainz, Barzahlung, funktioniert einwandfrei") == []

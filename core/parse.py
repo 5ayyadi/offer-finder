@@ -17,8 +17,6 @@ from models import FieldValue, ListingSummary
 
 _PRICE_RE = re.compile(r"(\d{1,3}(?:\.\d{3})*)(?:,(\d{1,2}))?\s*€")
 _PLZ_RE = re.compile(r"\b(\d{5})\b")
-_ZOLL_RE = re.compile(r"(\d{2,3})\s*(?:\"|''|Zoll|zoll)")
-_CM_RE = re.compile(r"(\d{2,3})\s*cm")
 
 _CONDITION_PHRASES = [
     "neuwertig",
@@ -47,17 +45,6 @@ def extract_plz(text: str) -> FieldValue[str]:
     if not match:
         return FieldValue(value=None, source="none", confidence=0.0)
     return FieldValue(value=match.group(1), source="regex", confidence=0.9)
-
-
-def extract_screen_size_inch(text: str) -> FieldValue[float]:
-    zoll_match = _ZOLL_RE.search(text)
-    if zoll_match:
-        return FieldValue(value=float(zoll_match.group(1)), source="regex", confidence=0.9)
-    cm_match = _CM_RE.search(text)
-    if cm_match:
-        inches = round(float(cm_match.group(1)) / 2.54, 1)
-        return FieldValue(value=inches, source="regex", confidence=0.6)
-    return FieldValue(value=None, source="none", confidence=0.0)
 
 
 def extract_condition_text(text: str) -> FieldValue[str]:

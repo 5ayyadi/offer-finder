@@ -5,7 +5,6 @@ from core.parse import (
     extract_plz,
     extract_posted_days_ago,
     extract_price_eur,
-    extract_screen_size_inch,
     parse_detail_page,
     parse_search_results,
 )
@@ -58,36 +57,6 @@ def test_extract_plz_from_location_text():
 
 def test_extract_plz_missing():
     fv = extract_plz("Irgendwo in Deutschland")
-    assert fv.value is None
-    assert fv.source == "none"
-
-
-# --- screen size -------------------------------------------------------------
-
-
-def test_extract_screen_size_zoll():
-    fv = extract_screen_size_inch("LG OLED 65 Zoll Fernseher")
-    assert fv.value == 65.0
-
-
-def test_extract_screen_size_double_quote():
-    fv = extract_screen_size_inch('Samsung 55" TV wie neu')
-    assert fv.value == 55.0
-
-
-def test_extract_screen_size_prefers_zoll_over_cm():
-    fv = extract_screen_size_inch("43 Zoll / 108 cm Bildschirmdiagonale")
-    assert fv.value == 43.0
-
-
-def test_extract_screen_size_falls_back_to_cm():
-    fv = extract_screen_size_inch("Bildschirmdiagonale 108 cm, kein Zoll angegeben")
-    assert fv.value is not None
-    assert abs(fv.value - 42.5) < 0.1  # 108 / 2.54
-
-
-def test_extract_screen_size_missing():
-    fv = extract_screen_size_inch("Fernseher zu verkaufen, guter Zustand")
     assert fv.value is None
     assert fv.source == "none"
 

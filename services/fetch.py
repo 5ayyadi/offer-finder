@@ -11,7 +11,6 @@ kill-switch object. See the plan's V2 roadmap for the fuller design.
 from __future__ import annotations
 
 import hashlib
-import json
 import random
 import time
 from collections.abc import Callable
@@ -176,23 +175,3 @@ def fetch_page(
 
     _cache_write(cache_dir, url, html)
     return html
-
-
-class SeenIds:
-    """A flat JSON-file-backed set of listing IDs already processed, so a
-    listing is never re-fetched once seen — independent of cache TTL."""
-
-    def __init__(self, path: str):
-        self._path = Path(path)
-        if self._path.exists():
-            self._ids: set[str] = set(json.loads(self._path.read_text(encoding="utf-8")))
-        else:
-            self._ids = set()
-
-    def has(self, listing_id: str) -> bool:
-        return listing_id in self._ids
-
-    def add(self, listing_id: str) -> None:
-        self._ids.add(listing_id)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(sorted(self._ids)), encoding="utf-8")

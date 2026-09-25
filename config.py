@@ -31,6 +31,5 @@ class Settings(BaseSettings):
     kill_switch: bool = False
 
     # Paths
-    catalog_path: str = "catalog_tv.yaml"
     plz_csv_path: str = "data/plz_de.csv"
     cache_dir: str = "data/cache"

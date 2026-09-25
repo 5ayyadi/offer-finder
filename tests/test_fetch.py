@@ -7,7 +7,6 @@ from services.fetch import (
     FetchFailed,
     KillSwitchActive,
     RequestGate,
-    SeenIds,
     TooManyFailures,
     classify_response,
     fetch_page,
@@ -176,18 +175,3 @@ def test_fetch_page_raises_fetch_failed_on_bad_response(tmp_path):
             "https://example.invalid/blocked", "search", gate,
             cache_dir=str(tmp_path), dry_run=False, kill_switch=False, http_get=fake_http_get,
         )
-
-
-# --- SeenIds -------------------------------------------------------------------
-
-
-def test_seen_ids_round_trip(tmp_path):
-    path = str(tmp_path / "seen.json")
-    seen = SeenIds(path)
-    assert seen.has("123") is False
-    seen.add("123")
-    assert seen.has("123") is True
-
-    reloaded = SeenIds(path)
-    assert reloaded.has("123") is True
-    assert reloaded.has("456") is False
