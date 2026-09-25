@@ -116,6 +116,7 @@ def _facts_for_prompt(facts: ListingFacts) -> dict[str, Any]:
         "condition": facts.condition.value,
         "posted_days_ago": facts.posted_days_ago.value,
         "image_count": facts.image_count,
+        "attributes": facts.attributes,
         "redflag_hints": facts.redflag_hints,
     }
 
@@ -151,7 +152,7 @@ def _is_supported(evidence: str, listing_text: str, citeable: dict[str, Any]) ->
     evidence = evidence.strip()
     if evidence.startswith("fact:"):
         value = citeable.get(evidence.removeprefix("fact:").strip())
-        return value is not None and value != []
+        return value not in (None, [], {})
     fragments = [_normalize(part) for part in _ELLIPSIS_RE.split(evidence)]
     fragments = [part for part in fragments if part]
     return bool(fragments) and all(

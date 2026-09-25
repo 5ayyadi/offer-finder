@@ -92,6 +92,11 @@ _DETAIL_DESCRIPTION_RE = re.compile(
 _DETAIL_LOCALITY_RE = re.compile(r'id="viewad-locality"[^>]*>(.*?)<', re.DOTALL)
 _DETAIL_PRICE_RE = re.compile(r'id="viewad-price"[^>]*>(.*?)<', re.DOTALL)
 _DETAIL_POSTED_RE = re.compile(r'icon-calendar-gray-simple"[^>]*></i><span>([^<]+)</span>')
+_ATTRIBUTE_RE = re.compile(
+    r'<li class="addetailslist--detail">\s*(.*?)<span class="addetailslist--detail--value"[^>]*>\s*(.*?)\s*</span>',
+    re.DOTALL,
+)
+_SHIPPING_RE = re.compile(r'class="boxedarticle--details--shipping"[^>]*>\s*([^<]+)')
 _GALLERY_IMAGE_RE = re.compile(r'data-imgsrc="(https://img\.kleinanzeigen\.de/[^"?]+)')
 _RESULTS_CONTAINER_MARKER = 'id="srchrslt-'
 _LARGE_IMAGE_RULE = "?rule=$_59.JPG"
@@ -105,6 +110,7 @@ class DetailPageText:
     price_raw: str | None
     posted_raw: str | None
     image_urls: list[str]
+    attributes: dict[str, str]
 
 
 def clean_html_text(raw: str) -> str:
@@ -166,7 +172,17 @@ def parse_detail_page(html: str) -> DetailPageText:
         price_raw=clean_html_text(price_match.group(1)) if price_match else None,
         posted_raw=clean_html_text(posted_match.group(1)) if posted_match else None,
         image_urls=_gallery_image_urls(html),
+        attributes=_attributes(html),
     )
+
+
+def _attributes(html: str) -> dict[str, str]:
+    """Kleinanzeigen's structured listing fields (Art, Zustand, ...) plus the shipping line."""
+    attributes = {clean_html_text(key): clean_html_text(value) for key, value in _ATTRIBUTE_RE.findall(html)}
+    shipping = _SHIPPING_RE.search(html)
+    if shipping:
+        attributes["Versand"] = clean_html_text(shipping.group(1))
+    return {key: value for key, value in attributes.items() if key and value}
 
 
 def _gallery_image_urls(html: str) -> list[str]:
@@ -182,7 +198,7 @@ def extract_facts(listing: Listing, today: date | None = None) -> ListingFacts:
     """Only what the listing itself states. The asking price comes from the
     price field alone — a number in the description may be the Neupreis."""
     description = listing.description
-    text = f"{listing.title} {description or ''}"
+    text = f"{listing.title} {description or ''} {listing.attributes.get('Versand', '')}"
     return ListingFacts(
         title=listing.title,
         description=description,
@@ -190,8 +206,15 @@ def extract_facts(listing: Listing, today: date | None = None) -> ListingFacts:
         price_eur=extract_price_eur(listing.price_raw or ""),
         plz=extract_plz(listing.location_text or ""),
         location_text=listing.location_text,
-        condition=extract_condition_text(description or ""),
+        condition=_condition(listing.attributes, description),
         posted_days_ago=extract_posted_days_ago(listing.posted_at_raw or "", today=today),
         image_count=len(listing.image_urls),
         redflag_hints=redflags.hints(text),
+        attributes=listing.attributes,
     )
+
+
+def _condition(attributes: dict[str, str], description: str | None) -> FieldValue[str]:
+    if attributes.get("Zustand"):
+        return FieldValue(value=attributes["Zustand"], source="regex", confidence=0.95)
+    return extract_condition_text(description or "")

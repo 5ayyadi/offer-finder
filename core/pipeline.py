@@ -1,5 +1,7 @@
 """Both ingestion paths (interactive search, Gmail alerts) converge here:
 store every listing -> fetch details -> evaluate -> store the evaluation.
+Search cards clearly outside the price range or radius are stored as
+'out_of_range' without a detail fetch.
 Sending notifications is separate (bot/notify.py) and reads from the DB.
 
 Synchronous on purpose: the bot runs it in a worker thread.
@@ -16,7 +18,7 @@ from typing import Protocol
 
 import db
 from core.checks import compute_checks
-from core.distance import PlzTable
+from core.distance import PlzTable, plz_distance_km
 from core.evaluator import EvaluationError, evaluate
 from core.parse import (
     extract_facts,
@@ -59,6 +61,15 @@ def _in_price_range(price_eur: int | None, spec: SearchSpec) -> bool:
     return spec.max_price_eur is None or price_eur <= spec.max_price_eur
 
 
+def _in_radius(plz: str | None, spec: SearchSpec, plz_table: PlzTable) -> bool:
+    """Kleinanzeigen appends results from outside the radius; skip those
+    before spending a detail fetch and an LLM call on them."""
+    if plz is None or spec.radius_km is None:
+        return True
+    distance_km = plz_distance_km(plz, spec.plz, plz_table)
+    return distance_km is None or distance_km <= spec.radius_km
+
+
 def _title_from_url(url: str) -> str:
     parts = url.rstrip("/").split("/")
     return parts[-2].replace("-", " ") if len(parts) >= 2 else url
@@ -83,7 +94,8 @@ class Pipeline:
 
         for card in cards:
             price = extract_price_eur(card.price_raw or "").value
-            in_range = _in_price_range(price, spec)
+            plz = extract_plz(card.location_text or "").value
+            in_range = _in_price_range(price, spec) and _in_radius(plz, spec, self.plz_table)
             listing = Listing(
                 listing_id=card.listing_id,
                 url=str(card.url),
@@ -94,7 +106,7 @@ class Pipeline:
                 price_raw=card.price_raw,
                 price_eur=price,
                 location_text=card.location_text,
-                plz=extract_plz(card.location_text or "").value,
+                plz=plz,
                 posted_at_raw=card.posted_at_raw,
             )
             if db.insert_discovered(self.conn, listing):
@@ -166,6 +178,7 @@ class Pipeline:
                         "plz": extract_plz(location_text or "").value,
                         "posted_at_raw": page.posted_raw or listing.posted_at_raw,
                         "image_urls": page.image_urls,
+                        "attributes": page.attributes,
                         "status": "fetched",
                     }
                 ),

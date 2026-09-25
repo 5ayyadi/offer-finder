@@ -192,13 +192,24 @@ def test_llm_calls_are_paced(conn):
     assert sleeps == [4.0]  # two evaluations, one pause between them
 
 
-def test_hard_fail_listing_is_evaluated_but_not_recommended(conn):
-    # both detail pages say Siegen, far outside 10 km around Berlin
+def test_card_outside_radius_is_stored_but_never_fetched_or_evaluated(conn):
+    # Kleinanzeigen appends far-away results after the in-radius ones
+    spec_id, spec = _spec(conn, radius_km=50)  # around Siegen; the Samsung card says Berlin
+    fetcher, llm = FakeFetcher(), ScriptedLLM()
+    report = _pipeline(conn, fetcher, llm).run_search(spec_id, spec)
+
+    assert report.out_of_range == 1
+    assert _status(conn, SAMSUNG_ID) == "out_of_range"
+    assert all(SAMSUNG_ID not in url for url in fetcher.detail_calls())
+    assert llm.calls == 1
+
+
+def test_detail_page_contradicting_the_card_still_fails_the_hard_check(conn):
+    # the Samsung card says Berlin, but its detail page says Siegen (far outside 10 km of Berlin)
     spec = make_spec(query="Fernseher", plz="10115", radius_km=10, max_price_eur=200)
     spec_id = db.insert_search_spec(conn, 42, spec)
     report = _pipeline(conn).run_search(spec_id, spec)
-    assert report.evaluated == 2
-    assert report.recommended == 0
+    assert (report.out_of_range, report.evaluated, report.recommended) == (1, 1, 0)
 
 
 # --- gmail path --------------------------------------------------------------------

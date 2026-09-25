@@ -186,3 +186,26 @@ def test_extract_facts_never_takes_price_from_description():
     # "Neupreis" in the text is not the asking price — asking price is unknown here
     listing = make_listing(price_raw=None, description="Neupreis 1.500 €, kaum benutzt")
     assert extract_facts(listing, today=date(2026, 9, 25)).price_eur.value is None
+
+
+def test_parse_detail_page_extracts_structured_attributes_and_shipping():
+    page = parse_detail_page(load_fixture("tv_listing_normal.html"))
+    assert page.attributes == {"Art": "Fernseher", "Zustand": "Sehr Gut", "Versand": "+ Versand ab 0,99 €"}
+
+
+def test_extract_facts_prefers_the_structured_condition_field():
+    listing = make_listing(attributes={"Zustand": "Sehr Gut"}, description="Gebrauchsspuren vorhanden")
+    facts = extract_facts(listing, today=date(2026, 9, 25))
+    assert facts.condition.value == "Sehr Gut"
+    assert facts.condition.confidence > 0.9
+    assert facts.attributes == {"Zustand": "Sehr Gut"}
+
+
+def test_extract_facts_falls_back_to_condition_phrases_in_description():
+    listing = make_listing(attributes={}, description="Gebrauchsspuren vorhanden")
+    assert extract_facts(listing, today=date(2026, 9, 25)).condition.value == "gebrauchsspuren"
+
+
+def test_shipping_only_hint_also_comes_from_the_structured_shipping_field():
+    listing = make_listing(attributes={"Versand": "Nur Versand"}, description="Top Zustand")
+    assert extract_facts(listing, today=date(2026, 9, 25)).redflag_hints == ["shipping only"]

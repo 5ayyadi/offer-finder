@@ -182,3 +182,10 @@ def test_malformed_response_twice_is_an_evaluation_error():
 def test_provider_failure_is_an_evaluation_error():
     with pytest.raises(EvaluationError):
         _evaluate(_FakeProvider(RuntimeError("429 Too Many Requests")))
+
+
+def test_prompt_includes_structured_attributes_and_they_are_citeable():
+    facts = make_facts().model_copy(update={"attributes": {"Versand": "Nur Abholung"}})
+    assert '"Versand": "Nur Abholung"' in build_user_prompt(facts, make_checks(), make_spec())
+    judgment = verify_evidence(_claims("fact:attributes"), facts, make_checks())
+    assert judgment.highlights[0].verified is True

@@ -213,3 +213,9 @@ def test_evaluations_for_spec_best_first(conn):
     assert [(listing.listing_id, evaluation.judgment.score) for listing, evaluation in rows] == [
         ("high", 90), ("low", 40)
     ]
+
+
+def test_listing_attributes_round_trip(conn):
+    db.insert_discovered(conn, make_listing("1", attributes={"Zustand": "Gut", "Versand": "Nur Abholung"}))
+    stored = db.get_listing(conn, "1")
+    assert stored is not None and stored.attributes == {"Zustand": "Gut", "Versand": "Nur Abholung"}

@@ -74,6 +74,7 @@ class Listing(BaseModel):
     plz: str | None = None
     posted_at_raw: str | None = None
     image_urls: list[str] = Field(default_factory=list)
+    attributes: dict[str, str] = Field(default_factory=dict)  # structured fields, e.g. Zustand, Versand
 
 
 # --- Evaluation: facts -> deterministic checks -> LLM judgment ---------------
@@ -92,6 +93,7 @@ class ListingFacts(BaseModel):
     posted_days_ago: FieldValue[int]
     image_count: int
     redflag_hints: list[str]
+    attributes: dict[str, str] = Field(default_factory=dict)
 
 
 class DeterministicChecks(BaseModel):

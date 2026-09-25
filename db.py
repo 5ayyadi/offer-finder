@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS listings (
     plz TEXT,
     posted_at_raw TEXT,
     image_urls TEXT NOT NULL DEFAULT '[]',
+    attributes TEXT NOT NULL DEFAULT '{}',
     first_seen_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -122,19 +123,21 @@ def active_search_specs(conn: sqlite3.Connection) -> list[tuple[int, SearchSpec]
 
 _LISTING_FIELDS = (
     "url", "title", "source", "status", "search_spec_id", "description", "price_raw",
-    "price_eur", "location_text", "plz", "posted_at_raw", "image_urls",
+    "price_eur", "location_text", "plz", "posted_at_raw", "image_urls", "attributes",
 )
 
 
 def _listing_values(listing: Listing) -> list[Any]:
     data = listing.model_dump()
     data["image_urls"] = json.dumps(listing.image_urls)
+    data["attributes"] = json.dumps(listing.attributes, ensure_ascii=False)
     return [data[field] for field in _LISTING_FIELDS]
 
 
 def _row_to_listing(row: sqlite3.Row) -> Listing:
     data = {key: row[key] for key in ("listing_id", *_LISTING_FIELDS)}
     data["image_urls"] = json.loads(row["image_urls"])
+    data["attributes"] = json.loads(row["attributes"])
     return Listing(**data)
 
 
