@@ -201,3 +201,15 @@ def test_export_rows_include_both_verdicts_and_empty_label(conn):
     assert rows[0]["product_verdict"] == "good"
     assert rows[0]["deal_verdict"] == "ok"
     assert rows[0]["my_label"] == ""
+
+
+def test_evaluations_for_spec_best_first(conn):
+    spec_id = db.insert_search_spec(conn, 42, make_spec())
+    db.insert_discovered(conn, make_listing("low"))
+    db.insert_discovered(conn, make_listing("high"))
+    db.save_evaluation(conn, make_evaluation("low", search_spec_id=spec_id, score=40))
+    db.save_evaluation(conn, make_evaluation("high", search_spec_id=spec_id, score=90))
+    rows = db.evaluations_for_spec(conn, spec_id)
+    assert [(listing.listing_id, evaluation.judgment.score) for listing, evaluation in rows] == [
+        ("high", 90), ("low", 40)
+    ]

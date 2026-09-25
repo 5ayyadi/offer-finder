@@ -107,7 +107,7 @@ class DetailPageText:
     image_urls: list[str]
 
 
-def _clean_html_text(raw: str) -> str:
+def clean_html_text(raw: str) -> str:
     text = re.sub(r"<[^>]+>", " ", raw)
     text = html_module.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
@@ -152,8 +152,8 @@ def parse_detail_page(html: str) -> DetailPageText:
     if not title_match or not description_match:
         raise ValueError("could not find title/description on detail page — layout may have changed")
 
-    title = _clean_html_text(title_match.group(1))
-    description = _clean_html_text(description_match.group(1))
+    title = clean_html_text(title_match.group(1))
+    description = clean_html_text(description_match.group(1))
 
     locality_match = _DETAIL_LOCALITY_RE.search(html)
     price_match = _DETAIL_PRICE_RE.search(html)
@@ -162,9 +162,9 @@ def parse_detail_page(html: str) -> DetailPageText:
     return DetailPageText(
         title=title,
         description=description,
-        location_text=_clean_html_text(locality_match.group(1)) if locality_match else None,
-        price_raw=_clean_html_text(price_match.group(1)) if price_match else None,
-        posted_raw=_clean_html_text(posted_match.group(1)) if posted_match else None,
+        location_text=clean_html_text(locality_match.group(1)) if locality_match else None,
+        price_raw=clean_html_text(price_match.group(1)) if price_match else None,
+        posted_raw=clean_html_text(posted_match.group(1)) if posted_match else None,
         image_urls=_gallery_image_urls(html),
     )
 

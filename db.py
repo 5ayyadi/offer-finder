@@ -247,6 +247,18 @@ def _row_to_evaluation(row: sqlite3.Row) -> Evaluation:
     )
 
 
+def evaluations_for_spec(conn: sqlite3.Connection, search_spec_id: int) -> list[tuple[Listing, Evaluation]]:
+    rows = conn.execute(
+        "SELECT * FROM evaluations WHERE search_spec_id = ? ORDER BY score DESC, id", (search_spec_id,)
+    ).fetchall()
+    result = []
+    for row in rows:
+        listing = get_listing(conn, row["listing_id"])
+        assert listing is not None
+        result.append((listing, _row_to_evaluation(row)))
+    return result
+
+
 # --- notifications ---------------------------------------------------------------
 
 

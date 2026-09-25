@@ -69,3 +69,46 @@ def test_build_application_wires_conversation_and_dependencies(tmp_path):
     assert {"settings", "llm", "start_search"} <= set(application.bot_data)
     assert application.job_queue is not None
     assert application.job_queue.jobs() == ()  # Gmail polling is off by default
+
+
+# --- Gmail flow: alert email -> DB -> evaluation -> Telegram -------------------
+
+from bot.app import gmail_poll_and_notify
+from tests.test_runner import _alert_gmail, _cache_email_details
+
+
+def _poll(settings, bot):
+    asyncio.run(gmail_poll_and_notify(bot, settings, ScriptedLLM(), asyncio.Lock(), _alert_gmail()))
+
+
+def test_alert_email_listing_is_sent_to_telegram_exactly_once(tmp_path):
+    settings = _settings(tmp_path, telegram_allowlist=[42])
+    _cache_email_details(settings)
+    bot = FakeBot()
+    _poll(settings, bot)
+
+    assert [kind for kind, _ in bot.sent] == ["media_group"]
+    assert bot.sent[0][1]["chat_id"] == 42
+    assert "Grundig" in bot.sent[0][1]["media"][0].caption
+
+    _poll(settings, bot)
+    assert len(bot.sent) == 1
+
+
+def test_gmail_poll_without_a_chat_to_notify_only_stores(tmp_path):
+    settings = _settings(tmp_path)  # no allowlist, no TELEGRAM_NOTIFY_CHAT_ID
+    _cache_email_details(settings)
+    bot = FakeBot()
+    _poll(settings, bot)
+    assert bot.sent == []
+
+
+def test_gmail_job_is_scheduled_when_enabled(tmp_path):
+    settings = _settings(
+        tmp_path, telegram_bot_token="123:TEST", telegram_allowlist=[42], gmail_enabled=True,
+        gmail_poll_interval_s=300,
+    )
+    application = build_application(settings, gmail_client=_alert_gmail())
+    assert application.job_queue is not None
+    jobs = application.job_queue.get_jobs_by_name("gmail")
+    assert len(jobs) == 1

@@ -5,12 +5,14 @@ which calls it from a worker thread.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import db
 from config import Settings
 from core import distance
+from core.email_parse import extract_listing_refs, html_to_text, match_spec
 from core.pipeline import Fetcher, Pipeline, RunReport
 from models import SearchSpec
 from services.fetch import (
@@ -23,7 +25,10 @@ from services.fetch import (
     TooManyFailures,
     fetch_page,
 )
+from services.gmail import GmailClient
 from services.llm import LLMProvider, OpenAICompatProvider
+
+logger = logging.getLogger(__name__)
 
 
 def make_provider(settings: Settings) -> OpenAICompatProvider:
@@ -116,3 +121,65 @@ def run_search_once(
         return SearchOutcome(search_spec_id, report)
     finally:
         conn.close()
+
+
+@dataclass
+class GmailOutcome:
+    messages: int = 0
+    emails_without_listings: int = 0
+    report: RunReport = field(default_factory=RunReport)
+    error: str | None = None
+
+
+_COUNTERS = ("found", "new", "out_of_range", "fetched", "fetch_failed", "evaluated", "evaluation_failed", "recommended")
+
+
+def _add_report(total: RunReport, part: RunReport) -> None:
+    for name in _COUNTERS:
+        setattr(total, name, getattr(total, name) + getattr(part, name))
+    if part.best_score is not None:
+        total.best_score = part.best_score if total.best_score is None else max(total.best_score, part.best_score)
+    total.stopped_reason = total.stopped_reason or part.stopped_reason
+
+
+def poll_gmail_once(
+    settings: Settings, provider: LLMProvider, client: GmailClient, fetcher: Fetcher | None = None
+) -> GmailOutcome:
+    """Process every not-yet-processed alert email. An email counts as
+    processed only once all its listings were fetched and evaluated, so a
+    poll cut short by the request budget or an LLM hiccup resumes later."""
+    outcome = GmailOutcome()
+    conn = open_db(settings)
+    try:
+        pipeline = make_pipeline(settings, conn, provider, fetcher)
+        specs = db.active_search_specs(conn)
+        for message_id in client.list_message_ids(settings.gmail_query):
+            if db.gmail_message_seen(conn, message_id):
+                continue
+            message = client.get_message(message_id)
+            refs = extract_listing_refs(message.html)
+            if not refs:
+                outcome.emails_without_listings += 1
+                logger.warning(
+                    "no listing links in email %r; if this was a saved-search alert, its format differs "
+                    "from fixtures/gmail_alert_email.html",
+                    message.subject,
+                )
+            match = match_spec(f"{message.subject} {html_to_text(message.html)}", specs)
+            search_spec_id, spec = match if match else (None, None)
+            try:
+                report = pipeline.process_email(refs, search_spec_id, spec)
+            except _STOP_ERRORS as exc:
+                outcome.error = explain_stop(exc)
+                break
+            _add_report(outcome.report, report)
+            outcome.messages += 1
+            if report.stopped_reason is None and report.evaluation_failed == 0:
+                db.record_gmail_message(
+                    conn, message_id, message.subject, [ref.listing_id for ref in refs], search_spec_id
+                )
+            if report.stopped_reason:
+                break  # request budget is gone for this poll
+    finally:
+        conn.close()
+    return outcome

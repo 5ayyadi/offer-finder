@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from config import Settings
 
 
@@ -27,3 +29,13 @@ def test_explicit_notify_chat_wins(monkeypatch):
 
 def test_notify_chat_is_none_without_allowlist(monkeypatch):
     assert _settings(monkeypatch).notify_chat_id is None
+
+
+def test_empty_values_from_env_example_are_accepted(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        (Path(__file__).parent.parent / ".env.example").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    settings = Settings()
+    assert settings.telegram_notify_chat_id is None
+    assert settings.notify_chat_id == 123456789

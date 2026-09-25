@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,6 +48,11 @@ class Settings(BaseSettings):
     db_path: str = "data/offer_finder.db"
     plz_csv_path: str = "data/plz_de.csv"
     cache_dir: str = "data/cache"
+
+    @field_validator("telegram_notify_chat_id", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: Any) -> Any:
+        return None if value == "" else value
 
     @property
     def notify_chat_id(self) -> int | None:
