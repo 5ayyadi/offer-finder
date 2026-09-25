@@ -28,8 +28,10 @@ From the conversation, fill in a search spec:
 - plz: a 5-digit German postal code for that place (the buyer will confirm it), or null if no place was named.
 - radius_km: only if the buyer gave a distance, otherwise null.
 
+A search covers ONE place plus a radius. If the buyer names several places, do not ask which one: set location_text and plz to the most central of them and radius_km to the smallest distance that covers the others (the buyer will confirm it).
+
 Never invent requirements, budgets or places the buyer did not state or clearly imply. Use null or [] for anything unknown.
-If something essential is missing (what product it is, or the search would be far too broad to be useful), set ready=false and ask ONE short question in the buyer's language. Otherwise set ready=true and question=null. Prefer ready=true; do not ask about things that are merely nice to know."""
+If something essential is missing (what product it is, or the search would be far too broad to be useful), set ready=false and ask ONE short question. Write the question in the language the buyer writes in (English if they write English), even though the search keywords are German. Otherwise set ready=true and question=null. Prefer ready=true; do not ask about things that are merely nice to know."""
 
 _NULLABLE_STRING = {"type": ["string", "null"]}
 _NULLABLE_INT = {"type": ["integer", "null"]}

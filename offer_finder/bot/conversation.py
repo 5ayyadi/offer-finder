@@ -9,9 +9,11 @@ bot_data must provide "settings", "llm" (an LLMProvider) and
 from __future__ import annotations
 
 import asyncio
+import logging
 import warnings
 from typing import Any
 
+import httpx
 from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackQueryHandler,
@@ -26,6 +28,8 @@ from telegram.warnings import PTBUserWarning
 from offer_finder.config import Settings
 from offer_finder.core.models import SearchSpec
 from offer_finder.core.search_spec import SpecError, describe, next_turn
+
+logger = logging.getLogger(__name__)
 
 COLLECTING, CONFIRMING = range(2)
 
@@ -53,6 +57,19 @@ def _proposal(spec: SearchSpec) -> str:
     return f"Proposed search:\n{describe(spec)}"
 
 
+def _spec_failure_text(exc: SpecError) -> str:
+    """Only ask to rephrase when the message was the problem, not the AI service."""
+    cause = exc.__cause__
+    if isinstance(cause, httpx.HTTPStatusError):
+        return (
+            f"The AI service returned an error (HTTP {cause.response.status_code}), so I couldn't "
+            "build the search. The details are in the bot's terminal."
+        )
+    if isinstance(cause, httpx.TransportError):
+        return "I couldn't reach the AI service. Please try again in a moment."
+    return "Sorry, I couldn't turn that into a search. Could you rephrase?"
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.chat_data.clear()  # type: ignore[union-attr]
     if update.message:
@@ -71,9 +88,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     settings: Settings = context.bot_data["settings"]
     try:
         turn = await asyncio.to_thread(next_turn, list(history), context.bot_data["llm"], settings.home_plz)
-    except SpecError:
+    except SpecError as exc:
         history.pop()
-        await update.message.reply_text("Sorry, I couldn't turn that into a search. Could you rephrase?")
+        logger.warning("%s", exc)
+        await update.message.reply_text(_spec_failure_text(exc))
         return COLLECTING
 
     if turn.question:

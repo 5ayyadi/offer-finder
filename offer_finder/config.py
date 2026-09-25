@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # LLM (OpenAI-compatible endpoint; defaults target Gemini's compat layer)
     llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     llm_api_key: str = ""
-    llm_model: str = "gemini-2.5-flash-lite"
+    llm_model: str = "gemini-3.5-flash-lite"
     llm_response_format: Literal["json_schema", "json_object"] = "json_schema"
     llm_min_interval_s: float = 4.0  # pause between evaluations, keeps free-tier RPM limits happy
 

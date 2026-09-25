@@ -2,9 +2,11 @@
 allowlist wiring is checked against real telegram.Update objects."""
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
 from telegram import Chat, Message, Update, User
 from telegram.ext import ConversationHandler
 
@@ -145,11 +147,37 @@ def test_cancel_button_ends_without_searching():
 
 
 def test_unusable_message_asks_to_rephrase_and_forgets_it():
-    context = FakeContext(RuntimeError("503"))
+    context = FakeContext(spec_response(query=None))  # neither a question nor a search
     update = _update("???")
     assert run(on_text(update, context)) == COLLECTING
     assert "rephrase" in update.message.replies[0][0]
     assert context.chat_data["history"] == []
+
+
+def _llm_http_error(status: int, body: str) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://llm.example/chat/completions")
+    response = httpx.Response(status, request=request, text=body)
+    return httpx.HTTPStatusError(f"{status} from LLM endpoint: {body}", request=request, response=response)
+
+
+def test_llm_service_error_is_reported_and_logged_instead_of_asking_to_rephrase(caplog):
+    context = FakeContext(_llm_http_error(404, "model gemini-x is no longer available"))
+    update = _update("good 65+ OLED TV around Mainz under 700")
+    with caplog.at_level(logging.WARNING):
+        assert run(on_text(update, context)) == COLLECTING
+    reply = update.message.replies[0][0]
+    assert "HTTP 404" in reply and "rephrase" not in reply
+    assert "model gemini-x is no longer available" in caplog.text
+    assert context.chat_data["history"] == []
+
+
+def test_unreachable_llm_service_is_reported(caplog):
+    context = FakeContext(httpx.ConnectError("name resolution failed"))
+    update = _update("good 65+ OLED TV around Mainz under 700")
+    with caplog.at_level(logging.WARNING):
+        run(on_text(update, context))
+    assert "couldn't reach the AI service" in update.message.replies[0][0]
+    assert "name resolution failed" in caplog.text
 
 
 def test_button_press_from_stranger_is_ignored():

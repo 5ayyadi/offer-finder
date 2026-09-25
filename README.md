@@ -123,8 +123,11 @@ labelled set for checking the evaluator later.
 
 - The Gmail alert parser is built against a hand-made fixture; it needs one real
   alert email to confirm.
-- The default model (`gemini-2.5-flash-lite`) and Gemini's acceptance of the
-  strict JSON schema haven't been verified with a real key yet. If Gemini
-  rejects the schema, set `LLM_RESPONSE_FORMAT=json_object`. If the model
-  name is retired, change `LLM_MODEL`.
+- Gemini retires model names without warning. `gemini-2.5-flash-lite` was
+  closed to new keys by 2026-09-25. The default `gemini-3.5-flash-lite` was
+  verified that day with the strict JSON schema, for both spec building and
+  evaluation. Newer non-lite models (`gemini-3.8-flash`, `gemini-3.7-flash`)
+  mostly answered `503 high demand` on the free tier at that time. If the
+  bot says "the AI service returned an error (HTTP 404)", change `LLM_MODEL`.
+  If Gemini rejects the schema, set `LLM_RESPONSE_FORMAT=json_object`.
 - Only the first search results page (~25 listings) is read per search.
