@@ -6,3 +6,6 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 .venv/
+data/offer_finder.db*
+data/gmail_credentials.json
+data/gmail_token.json
