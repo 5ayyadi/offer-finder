@@ -186,3 +186,17 @@ def test_conversation_ignores_everyone_else():
 def test_empty_allowlist_lets_nobody_in():
     handler = build_conversation([])
     assert not handler.check_update(_real_update(ALLOWED_ID, "OLED TV"))
+
+
+def _real_button_press(user_id: int, data: str) -> Update:
+    from telegram import CallbackQuery
+
+    user = User(id=user_id, first_name="x", is_bot=False)
+    chat = Chat(id=user_id, type="private")
+    message = Message(message_id=5, date=datetime.now(UTC), chat=chat, from_user=user, text="spec")
+    return Update(update_id=2, callback_query=CallbackQuery(id="q", from_user=user, chat_instance="c", message=message, data=data))
+
+
+def test_stale_button_outside_a_conversation_is_still_answered():
+    handler = build_conversation([ALLOWED_ID])
+    assert handler.check_update(_real_button_press(ALLOWED_ID, "search"))

@@ -19,6 +19,7 @@ from config import Settings
 from models import SearchSpec
 from services.gmail import GmailClient, GoogleGmailClient
 from services.llm import LLMProvider
+from services.search_url import build_search_url
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,9 @@ async def search_and_notify(
             sent = await send_pending(bot, conn, chat_id, outcome.search_spec_id)
         finally:
             conn.close()
-        await bot.send_message(chat_id, format_summary(outcome.report, sent, settings.recommendation_threshold))
+        summary = format_summary(outcome.report, sent, settings.recommendation_threshold)
+        save_hint = f"To get new matches by email, save this search on Kleinanzeigen:\n{build_search_url(spec)}"
+        await bot.send_message(chat_id, f"{summary}\n\n{save_hint}")
     except Exception as exc:
         logger.exception("search failed")
         await bot.send_message(chat_id, f"Something went wrong during the search: {exc}")

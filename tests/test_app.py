@@ -112,3 +112,15 @@ def test_gmail_job_is_scheduled_when_enabled(tmp_path):
     assert application.job_queue is not None
     jobs = application.job_queue.get_jobs_by_name("gmail")
     assert len(jobs) == 1
+
+
+def test_summary_offers_the_search_link_for_saving_on_kleinanzeigen(tmp_path):
+    from services.search_url import build_search_url
+
+    settings = _settings(tmp_path)
+    _cache_fixtures(settings)
+    bot = FakeBot()
+    _run_search(settings, bot)
+    summary = bot.sent[-1][1]["text"]
+    assert "save this search" in summary.lower()
+    assert build_search_url(_spec()) in summary

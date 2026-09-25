@@ -134,7 +134,11 @@ def build_conversation(allowlist: list[int]) -> ConversationHandler[Any]:
         # per_message=False is intended: the buttons belong to the chat's single open proposal
         warnings.simplefilter("ignore", PTBUserWarning)
         return ConversationHandler(
-            entry_points=[CommandHandler("start", start, filters=allowed), MessageHandler(text, on_text)],
+            entry_points=[
+                CommandHandler("start", start, filters=allowed),
+                MessageHandler(text, on_text),
+                CallbackQueryHandler(on_button),  # stale buttons from an ended conversation
+            ],
             states={
                 COLLECTING: [MessageHandler(text, on_text)],
                 CONFIRMING: [CallbackQueryHandler(on_button), MessageHandler(text, on_text)],
