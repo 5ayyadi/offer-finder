@@ -70,3 +70,19 @@ Short ADR-style entries. Newest context: V2 redesign, 2026-09-25.
 
 **Decision:** Notifications are short (Telegram HTML): score, the seller's title shortened and the price; town and distance; up to 3 verified matches and concerns (worst first) as short phrases; unknowns; one verdict line naming both the deal and the product verdict; a "View listing" link. The long summaries stay in the DB.
 **Reason:** The user reads them on a phone. The title stays the seller's own words, because an AI-rewritten title could invent a model name. Deal and product stay separate in the verdict line. Everything is HTML-escaped, and if Telegram still rejects the markup the message goes out as plain text.
+
+---
+
+Context: several places, "best of category", list-first results, 2026-10-06.
+
+**Decision:** A spec holds several places with one shared radius (`DEFAULT_RADIUS_KM`, 20, when none is given); one results page per place, cards merged by listing id, distance measured to the nearest place.
+**Reason:** The user searches e.g. Wiesbaden, Mainz and Mannheim at once. One radius keeps the spec and the confirm card simple. The old "most central place + big radius" covered towns in between nobody asked for.
+
+**Decision:** "Best" comes from one broad category search plus smarter scoring, not from searching shortlisted model names. The spec carries a `quality_guide` (top tier / mid / avoid), shown on the confirm card and handed to every evaluation.
+**Reason:** User's choice. One query keeps the request budget and finds listings with vague titles; a shared, visible, editable guide makes all scores of a run use the same yardstick instead of each evaluation improvising one.
+
+**Decision:** `product_assessment.tier` (top / upper_mid / mid / budget / unknown); Python caps the score at 70 for mid and 55 for budget.
+**Reason:** Live runs scored generic budget TVs 85–90 because they matched the query and the budget. The caps make "the buyer wants the best" deterministic, like the hard fails; the raw response keeps the model's own score for replay.
+
+**Decision:** Results are one ranked text list with numbered buttons (`offer:<evaluation id>`); a tap sends that offer's card with photos. Search lists show all picks of the run (earlier ones marked "seen before"); Gmail lists only new picks.
+**Reason:** The user wants to read the picks and the AI's reasons in one place and open only the ones they care about, instead of a stream of photo albums. Carrying the evaluation id makes buttons survive restarts without extra state.

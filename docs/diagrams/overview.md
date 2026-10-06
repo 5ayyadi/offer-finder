@@ -32,7 +32,7 @@ flowchart LR
     eval <--> llm
     conv <--> llm
     eval -- evaluation --> db
-    db -- unsent recommendations --> notify
-    notify -- photos, score, why, concerns, link --> user
+    db -- picks --> notify
+    notify -- "ranked list + buttons; tap = photos, why, link" --> user
     notify -- sent --> db
 ```

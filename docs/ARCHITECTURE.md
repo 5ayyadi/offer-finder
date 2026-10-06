@@ -25,20 +25,21 @@ via `make` (`make bot`, `make search Q="…"`, …) — no install step.
 |---|---|
 | `bot/app.py` | Bot process: builds the PTB `Application`, runs confirmed searches as background tasks, schedules the Gmail job. One `asyncio.Lock` makes sure only one unit of work scrapes at a time. |
 | `bot/conversation.py` | `ConversationHandler`: COLLECTING → CONFIRMING (Search / Change / Cancel). Allowlist enforced by handler filters and in the button handler. State in memory. |
-| `bot/status.py` | The live status message of a running search: one Telegram message edited in place (results page → reading listing pages n/N → evaluating n/N → done, or ❌ why it stopped). The pipeline reports `Progress` from the worker thread; edits happen at most every 3 s, and a failed edit never breaks the search. |
-| `bot/notify.py` | Reads unsent recommendations from the DB, sends album/photo/text, records the notification **after** Telegram accepted it. Run summary text. |
+| `bot/status.py` | The live status message of a running search: one Telegram message edited in place (results page(s) n/N → reading listing pages n/N → evaluating n/N → done, or ❌ why it stopped). The pipeline reports `Progress` from the worker thread; edits happen at most every 3 s, and a failed edit never breaks the search. |
+| `bot/notify.py` | The ranked pick list (`send_search_results` for a search, `send_new_picks` for Gmail), split at 4096 chars, with numbered `offer:<evaluation id>` buttons; records the picks **after** Telegram accepted the list. `send_offer()` = one offer's card (album/photo/text). Run summary text. |
+| `bot/offers.py` | Handles the offer buttons (allowlist checked): loads the evaluation by id and calls `send_offer()`. Works after restarts. |
 | `runner.py` | Builds real dependencies from `Settings`; `run_search_once()` and `poll_gmail_once()` — synchronous, shared by bot (worker thread) and CLI. |
 | `cli.py` | Dev CLI: `search`, `gmail-auth`, `gmail-poll`, `stats`, `export`. |
-| `core/search_spec.py` | `next_turn()` turns the conversation into a `SearchSpec` (or one follow-up question); `describe()` is the confirmation text. |
+| `core/search_spec.py` | `next_turn()` turns the conversation into a `SearchSpec` (or one follow-up question): broad category query, every named place with its PLZ, one radius (`DEFAULT_RADIUS_KM` if none given), and a `quality_guide` (top tier / mid / avoid for the category and budget, from the LLM's product knowledge). The buyer is assumed to want the best product the budget buys. `describe()` is the confirmation text. |
 | `core/pipeline.py` | `Pipeline.run_search()` / `process_email()` → store → fetch details → `evaluate_pending()`. |
 | `core/parse.py` | Regex parsing of search cards and detail pages (text, price, location, date, gallery images, structured fields like `Zustand`/`Versand`); `extract_facts()` = evaluation layer 1. |
-| `core/checks.py` | `compute_checks()` = evaluation layer 2: distance, budget, missing fields, hard fails. |
-| `core/evaluator.py` | Evaluation layer 3: prompt + strict schema, `evaluate()`, `verify_evidence()`, `is_recommended()`. |
+| `core/checks.py` | `compute_checks()` = evaluation layer 2: distance to the nearest searched place, budget, missing fields, hard fails. |
+| `core/evaluator.py` | Evaluation layer 3: prompt + strict schema, `evaluate()`, `verify_evidence()`, `cap_score()` (tier caps), `is_recommended()`. |
 | `core/redflags.py` | Cheap keyword hints (shipping only, Nachnahme, PayPal F&F, defect words) handed to the LLM as heuristics. |
 | `core/email_parse.py` | Alert email → listing links (`ListingRef`); `match_spec()` maps an email to a saved `SearchSpec`. |
 | `core/distance.py` | Haversine over `data/plz_de.csv` (PLZ → lat/lon, no place names). |
 | `services/fetch.py` | **The only network path to Kleinanzeigen**: `RequestGate` (delay + jitter, per-run request cap, stop after N bad responses), `fetch_page()` (kill switch, dry run, cache; search pages expire after `SEARCH_CACHE_TTL_S`). |
-| `services/search_url.py` | `SearchSpec` → `/s-suchanfrage.html?keywords=…&locationStr=<plz>&radius=…&minPrice=…&maxPrice=…` |
+| `services/search_url.py` | `SearchSpec` → one `/s-suchanfrage.html?keywords=…&locationStr=<plz>&radius=…&minPrice=…&maxPrice=…` per place |
 | `services/llm.py` | OpenAI-compatible transport (Gemini by default) + `complete_validated()` (pydantic validation, one retry). |
 | `services/gmail.py` | Read-only Gmail client (OAuth installed-app flow) and MIME helpers. |
 | `storage/db.py` / `core/models.py` / `config.py` | SQLite schema + queries / pydantic models / `.env` settings. |
@@ -48,19 +49,22 @@ via `make` (`make bot`, `make search Q="…"`, …) — no install step.
 Sequence diagrams: [diagrams/flows.md](diagrams/flows.md). Component view: [diagrams/overview.md](diagrams/overview.md).
 
 **Interactive search.** Text message → `next_turn()` (LLM) asks ≤3 questions
-→ spec shown with buttons → *Search* → `search_and_notify()` background task:
-under the lock, in a worker thread, `run_search_once()` stores the spec,
-fetches one search page, stores **every** card, marks cards outside the
-price range or radius `out_of_range` (no detail fetch), fetches remaining
-detail pages, evaluates each fetched listing → back on the event loop,
-`send_pending()` sends recommendations for that spec → summary message with
-the Kleinanzeigen link to save as a saved search.
+→ spec shown with buttons (incl. "Best looks like: …") → *Search* →
+`search_and_notify()` background task: under the lock, in a worker thread,
+`run_search_once()` stores the spec, fetches one search page **per place**,
+merges the cards by listing id, stores **every** card, marks cards outside
+the price range or outside every place's radius `out_of_range` (no detail
+fetch), fetches remaining detail pages, evaluates each fetched listing →
+back on the event loop, `send_search_results()` sends one ranked list of
+that spec's picks (picks listed before are marked "seen before") → summary
+message with one Kleinanzeigen link per place to save as a saved search.
+Tapping a number under the list → `offers.py` → `send_offer()`.
 
 **Gmail monitoring.** `JobQueue` every `GMAIL_POLL_INTERVAL_S` →
 `poll_gmail_once()`: list messages for `GMAIL_QUERY`, skip IDs already in
 `gmail_messages`, extract listing links, match the email to a saved spec by
 its query words (else evaluate without a spec), `process_email()` → same
-fetch/evaluate path → `send_pending()` to `TELEGRAM_NOTIFY_CHAT_ID`
+fetch/evaluate path → `send_new_picks()` (a list of picks not listed before) to `TELEGRAM_NOTIFY_CHAT_ID`
 (default: first allowlisted user). An email is marked processed only when
 all its listings were fetched and evaluated, so budget stops and LLM
 failures resume on the next poll.
@@ -73,13 +77,18 @@ failures resume on the next poll.
    fields, red-flag hints. Unknown stays `null`.
 2. **Deterministic checks** (`compute_checks`): distance, within radius,
    within budget, € over budget, missing fields, hard-fail reasons.
-3. **LLM judgment**: `product_assessment` (verdict + requirements match,
-   regardless of price) and `deal_assessment` (verdict, regardless of how
+3. **LLM judgment**: `product_assessment` (verdict, requirements match and
+   `tier` = top / upper_mid / mid / budget / unknown, judged against the
+   spec's quality guide, regardless of price) and `deal_assessment` (verdict, regardless of how
    good the product is) as separate objects, highlights/concerns each with
    evidence (verbatim quote or `fact:<name>`), unknowns, score 0–100,
    confidence. `verify_evidence()` checks every claim in Python; unverified
    claims are stored but never shown. No market-value claims (there's no
    market data).
+
+Python then caps the score by tier (`mid` ≤ 70, `budget` ≤ 55; the raw
+response keeps what the model said), so a cheap generic product can't
+outscore a top-tier one.
 
 `recommended = score ≥ RECOMMENDATION_THRESHOLD and no hard fail and requirements_match ≠ "mismatch"`.
 
@@ -87,10 +96,10 @@ failures resume on the next poll.
 
 | Table | Key | Purpose |
 |---|---|---|
-| `search_specs` | `id` | Confirmed specs (JSON) per chat; `active` flag used for Gmail matching. |
+| `search_specs` | `id` | Confirmed specs (JSON) per chat; `active` flag used for Gmail matching. Specs stored before 2026-10-06 have one `plz` and are converted to `locations` when loaded. |
 | `listings` | `listing_id` (Kleinanzeigen ad id) | Every listing ever seen, raw scraped fields, `image_urls`, `attributes` JSON, `source` (`search`/`gmail`, first seen wins), `status`. |
 | `evaluations` | unique `(listing_id, IFNULL(search_spec_id,0))` | One evaluation per listing per spec (or per "no spec"): score, recommended, product/deal verdicts, `input_json` (facts + checks + exact prompt), `judgment_json`, raw response, model, prompt version. |
-| `notifications` | `(listing_id, chat_id)` | **Dedup key**: a listing is sent to a chat at most once, even if several specs recommend it. |
+| `notifications` | `(listing_id, chat_id)` | A listing appeared in a pick list for this chat. Gmail lists only show picks without a row here (each listed once); search lists show all picks of the search and mark these as "seen before". |
 | `gmail_messages` | `message_id` | Emails fully processed (listing ids, matched spec, error). |
 
 Listing status: `discovered` → `fetched` | `out_of_range` | `fetch_failed`.

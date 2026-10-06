@@ -13,9 +13,9 @@ sequenceDiagram
     participant D as SQLite
     participant N as notify.py
 
-    U->>C: "good 65+ OLED TV around Mainz under 700"
+    U->>C: "a good router in Wiesbaden, Mainz or Mannheim under 150"
     C->>L: next_turn(history)
-    L-->>C: question or spec
+    L-->>C: question or spec (places, one radius, quality guide)
     C-->>U: follow-up question (≤ 3)
     C-->>U: spec + [Search] [Change] [Cancel]
     U->>C: Search
@@ -23,23 +23,27 @@ sequenceDiagram
     A-->>U: status message, edited in place as each step finishes (at most every 3 s)
     A->>P: run_search_once (under lock, reports progress back)
     P->>D: insert spec
-    P->>K: search page (s-suchanfrage.html)
-    P->>D: store every card (out_of_range if price/radius off)
+    loop each place
+        P->>K: search page (s-suchanfrage.html)
+    end
+    P->>D: store every card once (out_of_range if price off or outside every place's radius)
     loop each in-range, not yet fetched listing
         P->>K: detail page (RequestGate pacing)
         P->>D: update listing (text, images, attributes)
     end
     loop each fetched listing without evaluation for this spec
         P->>P: facts → deterministic checks
-        P->>L: judgment (strict JSON)
-        P->>P: verify evidence, apply threshold + hard fails
+        P->>L: judgment incl. product tier (strict JSON)
+        P->>P: verify evidence, cap score by tier, apply threshold + hard fails
         P->>D: save evaluation (with exact prompt)
     end
-    A->>N: send_pending(chat, spec)
-    N->>D: recommended and not yet notified
-    N-->>U: album: score · title · price, town · km, matches, concerns, unknowns, verdict, link
-    N->>D: record notification (after success)
-    A-->>U: summary + link to save as Kleinanzeigen search
+    A->>N: send_search_results(chat, spec)
+    N->>D: picks of this spec (seen before?)
+    N-->>U: ranked list: score · title · price, town · km, tier, why + buttons [1] [2] …
+    N->>D: record notifications (after success)
+    A-->>U: summary + one link per place to save as Kleinanzeigen search
+    U->>N: tap [n] (offers.py)
+    N-->>U: that offer: photos, matches, concerns, unknowns, verdict, link
 ```
 
 ## Gmail monitoring
@@ -66,7 +70,7 @@ sequenceDiagram
         P->>D: save evaluations
         J->>D: mark email processed (only if complete)
     end
-    J->>N: send_pending(notify chat)
-    N-->>U: each new recommendation, once
-    N->>D: record notification
+    J->>N: send_new_picks(notify chat)
+    N-->>U: list of new picks with buttons, each listed once
+    N->>D: record notifications
 ```

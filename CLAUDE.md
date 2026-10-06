@@ -9,7 +9,10 @@ have to explore the repo. Reasons behind choices: [docs/DECISIONS.md](docs/DECIS
 Personal POC, one user: a Telegram bot that turns a conversation into a
 confirmed Kleinanzeigen search for any product, stores every listing in
 SQLite, has an LLM (Gemini free tier, OpenAI-compatible endpoint) judge each
-one, and sends the worthwhile ones with photos, once. Kleinanzeigen
+one, and sends one ranked list of the picks with buttons that open each offer
+(photos, reasons, link). It searches around several places at once and
+assumes the buyer wants the best product the budget can buy (quality guide
+in the spec, product tier with Python score caps). Kleinanzeigen
 saved-search alert emails (read-only Gmail OAuth) feed the same pipeline.
 V1 (TV-only catalog + fixed-weight scorer) was replaced on 2026-09-25; it's
 commit `62b2bb3` in git history.
@@ -35,7 +38,8 @@ commit `62b2bb3` in git history.
    gated by `RequestGate`. Respect `DRY_RUN` and `KILL_SWITCH`. In the bot,
    all scraping runs under one lock, in a worker thread.
 6. **Notifications are recorded only after Telegram accepted them**;
-   `(listing_id, chat_id)` is the dedup key.
+   `(listing_id, chat_id)` is the dedup key (Gmail lists only new picks;
+   search lists mark earlier ones "seen before").
 7. **Never automate Kleinanzeigen saved searches** or anything else on the
    user's Kleinanzeigen account. Gmail access stays read-only.
 8. **Changing the evaluator prompt or schema? Bump `EVALUATOR_PROMPT_VERSION`**
@@ -49,7 +53,7 @@ offer_finder/            the code; run from the repo root with `python -m offer_
   core/      models + logic: parse, redflags, distance, search_spec, checks, evaluator, email_parse, pipeline
   services/  external systems: fetch (Kleinanzeigen), search_url, llm (OpenAI-compatible), gmail
   storage/   db.py (SQLite)
-  bot/       Telegram: app (process, background tasks, Gmail job), conversation, status (live progress message), notify; `python -m offer_finder.bot`
+  bot/       Telegram: app (process, background tasks, Gmail job), conversation, status (live progress message), notify (pick list + offer card), offers (offer buttons); `python -m offer_finder.bot`
 tests/       pytest, mirrors the package; helpers/ = shared fakes + factories;
              fixtures/ = real, PII-redacted Kleinanzeigen HTML + a hand-built alert email
 data/        plz_de.csv (committed); cache/, logs/, offer_finder.db, gmail_*.json (gitignored)

@@ -1,13 +1,16 @@
 # offer-finder
 
 A personal Telegram bot that finds worthwhile second-hand deals on
-Kleinanzeigen.de, for any product. Tell it what you want ("a good 65+ inch
-OLED TV around Mainz under €700"). It asks a question or two if needed,
-shows you the search it will run, and once you confirm it searches
-Kleinanzeigen, stores every listing it finds, has an LLM judge each one on
-two separate things (is the product good for you, and is the listing a
-good deal), and sends you the worthwhile ones with photos, score, reasons,
-concerns and a link. It never sends the same listing twice.
+Kleinanzeigen.de, for any product. Tell it what you want, as a category is
+enough ("a good router in Wiesbaden, Mainz or Mannheim under €150"): it
+assumes you want the best product your budget can buy second-hand and writes
+a short guide to what "the best" means for that category. It asks a question
+or two if needed, shows you the search it will run, and once you confirm it
+searches around each place, stores every listing it finds, and has an LLM
+judge each one on two separate things (how good the product is — its tier in
+the category — and whether the listing is a good deal). You get one ranked
+list of the picks with the AI's reasons; tap a number to see that offer
+with photos and the link.
 
 For ongoing monitoring you save searches on Kleinanzeigen yourself. Their
 alert emails go to a dedicated Gmail inbox, which the bot reads (read-only
@@ -136,4 +139,4 @@ labelled set for checking the evaluator later.
   mostly answered `503 high demand` on the free tier at that time. If the
   bot says "the AI service returned an error (HTTP 404)", change `LLM_MODEL`.
   If Gemini rejects the schema, set `LLM_RESPONSE_FORMAT=json_object`.
-- Only the first search results page (~25 listings) is read per search.
+- Only the first search results page (~25 listings) per place is read.
