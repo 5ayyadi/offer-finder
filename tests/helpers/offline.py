@@ -35,7 +35,7 @@ def offline_settings(tmp_path, **overrides) -> Settings:
 
 def offline_spec() -> SearchSpec:
     """The spec whose search page is cached by cache_search_fixtures()."""
-    return make_spec(query="Fernseher", plz="57074", radius_km=None, max_price_eur=200)
+    return make_spec(query="Fernseher", location_text="Siegen", plz="57074", radius_km=None, max_price_eur=200)
 
 
 def cache_search_fixtures(settings: Settings) -> None:

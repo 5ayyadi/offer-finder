@@ -71,9 +71,9 @@ def spec_response(**overrides):
         "nice_to_have": [],
         "min_price_eur": None,
         "max_price_eur": 700,
-        "location_text": "Mainz",
-        "plz": "55116",
+        "locations": [{"name": "Mainz", "plz": "55116"}],
         "radius_km": 30,
+        "quality_guide": "Top tier: LG C/G-series and Sony A80+ OLEDs. Avoid: edge-lit budget LCDs.",
     }
     values.update(overrides)
     return values

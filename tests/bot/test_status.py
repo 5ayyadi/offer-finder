@@ -10,7 +10,7 @@ from tests.helpers.fakes import FakeBot
 
 def test_first_it_shows_the_search_and_loads_the_results_page():
     text = format_status(make_spec(), None)
-    assert text.startswith('🔎 Searching Kleinanzeigen: "OLED 65 Zoll", up to €700, PLZ 55116 within 30 km')
+    assert text.startswith('🔎 Searching Kleinanzeigen: "OLED 65 Zoll", up to €700, Mainz within 30 km')
     assert "⏳ Loading the results page…" in text
     assert "▫️ Reading listing pages" in text and "▫️ Evaluating" in text
 
@@ -93,3 +93,14 @@ def test_failed_status_edit_never_breaks_the_search():
 
     asyncio.run(scenario())  # no exception
     assert [kind for kind, _ in bot.sent] == ["message"]
+
+
+def test_several_places_count_their_results_pages():
+    from offer_finder.core.models import Location
+
+    spec = make_spec(locations=[Location(name="Wiesbaden", plz="65183"), Location(name="Mainz", plz="55116")])
+    assert "⏳ Loading results pages: 1/2 (Wiesbaden)" in format_status(spec, None)
+    loading_second = Progress("results", 1, 2, RunReport())
+    assert "⏳ Loading results pages: 2/2 (Mainz)" in format_status(spec, loading_second)
+    fetching = Progress("fetching", 0, 3, RunReport(found=9))
+    assert "✅ Results pages (2 places): 9 listings" in format_status(spec, fetching)

@@ -19,7 +19,9 @@ class SpecThenJudgeLLM:
     def complete_json(self, system_prompt, user_prompt, json_schema):
         self.calls += 1
         if "ready" in json_schema["properties"]:
-            return spec_response(query="Fernseher", plz="57074", radius_km=None, max_price_eur=200)
+            return spec_response(
+                query="Fernseher", locations=[{"name": "Siegen", "plz": "57074"}], radius_km=None, max_price_eur=200
+            )
         return judgment_response(85 if "Grundig" in user_prompt else 20)
 
 
@@ -30,6 +32,7 @@ def env(tmp_path, monkeypatch):
     for key, value in {
         "DB_PATH": settings.db_path, "CACHE_DIR": settings.cache_dir, "DRY_RUN": "true",
         "LLM_MIN_INTERVAL_S": "0", "PLZ_CSV_PATH": PLZ_CSV, "HOME_PLZ": "57074",
+        "DEFAULT_RADIUS_KM": "",  # any distance, like the cached offline search
     }.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(runner, "make_provider", lambda _settings: SpecThenJudgeLLM())

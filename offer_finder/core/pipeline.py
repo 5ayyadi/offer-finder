@@ -16,10 +16,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
-from offer_finder.core.checks import compute_checks
-from offer_finder.core.distance import PlzTable, plz_distance_km
+from offer_finder.core.checks import compute_checks, nearest_location
+from offer_finder.core.distance import PlzTable
 from offer_finder.core.evaluator import EvaluationError, evaluate
-from offer_finder.core.models import Evaluation, Listing, ListingRef, SearchSpec
+from offer_finder.core.models import Evaluation, Listing, ListingRef, ListingSummary, SearchSpec
 from offer_finder.core.parse import (
     extract_facts,
     extract_plz,
@@ -29,7 +29,7 @@ from offer_finder.core.parse import (
 )
 from offer_finder.services.fetch import BudgetExhausted, CacheMiss, FetchFailed, PageType
 from offer_finder.services.llm import LLMProvider
-from offer_finder.services.search_url import build_search_url
+from offer_finder.services.search_url import build_search_urls
 from offer_finder.storage import db
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ class RunReport:
 class Progress:
     """Where a running search is, for the live Telegram status message."""
 
-    stage: Literal["fetching", "evaluating"]
+    stage: Literal["results", "fetching", "evaluating"]
     done: int
     total: int
     report: RunReport  # a snapshot of the counters so far
@@ -76,8 +76,8 @@ def _in_radius(plz: str | None, spec: SearchSpec, plz_table: PlzTable) -> bool:
     before spending a detail fetch and an LLM call on them."""
     if plz is None or spec.radius_km is None:
         return True
-    distance_km = plz_distance_km(plz, spec.plz, plz_table)
-    return distance_km is None or distance_km <= spec.radius_km
+    nearest = nearest_location(plz, spec.locations, plz_table)
+    return nearest is None or nearest[1] <= spec.radius_km
 
 
 def _title_from_url(url: str) -> str:
@@ -98,13 +98,25 @@ class Pipeline:
     sleep_fn: Callable[[float], None] = time.sleep
     on_progress: Callable[[Progress], None] | None = None  # called from the worker thread
 
-    def _progress(self, stage: Literal["fetching", "evaluating"], done: int, total: int, report: RunReport) -> None:
+    def _progress(
+        self, stage: Literal["results", "fetching", "evaluating"], done: int, total: int, report: RunReport
+    ) -> None:
         if self.on_progress is not None:
             self.on_progress(Progress(stage, done, total, replace(report)))
 
+    def _search_cards(self, spec: SearchSpec, report: RunReport) -> list[ListingSummary]:
+        """One results page per location; a card found around two cities counts once."""
+        urls = build_search_urls(spec)
+        cards: dict[str, ListingSummary] = {}
+        for done, (_location, url) in enumerate(urls):
+            self._progress("results", done, len(urls), report)
+            for card in parse_search_results(self.fetcher(url, "search")):
+                cards.setdefault(card.listing_id, card)
+        return list(cards.values())
+
     def run_search(self, search_spec_id: int, spec: SearchSpec) -> RunReport:
         report = RunReport()
-        cards = parse_search_results(self.fetcher(build_search_url(spec), "search"))
+        cards = self._search_cards(spec, report)
         report.found = len(cards)
 
         for card in cards:
@@ -133,8 +145,8 @@ class Pipeline:
 
         label = f"search {search_spec_id}"
         logger.info(
-            "%s: results page has %d listings (%d new, %d outside price/radius)",
-            label, report.found, report.new, report.out_of_range,
+            "%s: %d results page(s) have %d listings (%d new, %d outside price/radius)",
+            label, len(spec.locations), report.found, report.new, report.out_of_range,
         )
         ids = [card.listing_id for card in cards]
         self._fetch_details(ids, report, label)

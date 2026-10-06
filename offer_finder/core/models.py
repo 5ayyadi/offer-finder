@@ -7,9 +7,9 @@ being silently defaulted.
 
 from __future__ import annotations
 
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 T = TypeVar("T")
 
@@ -33,8 +33,20 @@ class ListingSummary(BaseModel):
     posted_at_raw: str | None = None
 
 
+class Location(BaseModel):
+    """One place to search around: the name the buyer used and its PLZ."""
+
+    name: str | None = None
+    plz: str
+
+    @property
+    def label(self) -> str:
+        return self.name or f"PLZ {self.plz}"
+
+
 class SearchSpec(BaseModel):
-    """What the user wants, built in conversation and confirmed by them."""
+    """What the user wants, built in conversation and confirmed by them.
+    One search per location, all with the same radius."""
 
     query: str
     product_summary: str
@@ -42,9 +54,20 @@ class SearchSpec(BaseModel):
     nice_to_have: list[str] = Field(default_factory=list)
     min_price_eur: int | None = None
     max_price_eur: int | None = None
-    location_text: str | None = None
-    plz: str
+    locations: list[Location] = Field(min_length=1)
     radius_km: int | None = None
+    quality_guide: str | None = None  # what top tier / mid / avoid looks like, from the LLM's product knowledge
+
+    @model_validator(mode="before")
+    @classmethod
+    def _single_place(cls, data: Any) -> Any:
+        """Specs stored before 2026-10-06 have one `plz` + `location_text`."""
+        if isinstance(data, dict) and ("plz" in data or "location_text" in data):
+            data = dict(data)
+            plz, name = data.pop("plz", None), data.pop("location_text", None)
+            if "locations" not in data and plz is not None:
+                data["locations"] = [{"name": name, "plz": plz}]
+        return data
 
 
 class ListingRef(BaseModel):
@@ -99,7 +122,8 @@ class ListingFacts(BaseModel):
 class DeterministicChecks(BaseModel):
     """Layer 2: computed in Python against the spec. The LLM never does this math."""
 
-    distance_km: float | None
+    distance_km: float | None  # to the nearest searched location
+    nearest_location: str | None = None  # its label; None for evaluations stored before 2026-10-06
     within_radius: bool | None
     price_within_budget: bool | None
     over_budget_eur: int | None

@@ -6,15 +6,25 @@ the arithmetic or geography itself.
 from __future__ import annotations
 
 from offer_finder.core.distance import PlzTable, plz_distance_km
-from offer_finder.core.models import DeterministicChecks, ListingFacts, SearchSpec
+from offer_finder.core.models import DeterministicChecks, ListingFacts, Location, SearchSpec
+
+
+def nearest_location(
+    plz: str | None, locations: list[Location], plz_table: PlzTable
+) -> tuple[Location, float] | None:
+    """The searched location closest to a listing's PLZ, with the distance in km."""
+    if plz is None:
+        return None
+    distances = [(loc, km) for loc in locations if (km := plz_distance_km(plz, loc.plz, plz_table)) is not None]
+    return min(distances, key=lambda pair: pair[1]) if distances else None
 
 
 def compute_checks(
     facts: ListingFacts, spec: SearchSpec | None, plz_table: PlzTable, home_plz: str
 ) -> DeterministicChecks:
-    target_plz = spec.plz if spec else home_plz
-    raw_distance = plz_distance_km(facts.plz.value, target_plz, plz_table) if facts.plz.value else None
-    distance = round(raw_distance, 1) if raw_distance is not None else None
+    locations = spec.locations if spec else [Location(name=None, plz=home_plz)]
+    nearest = nearest_location(facts.plz.value, locations, plz_table)
+    distance = round(nearest[1], 1) if nearest else None
     radius = spec.radius_km if spec else None
     within_radius = None if distance is None or radius is None else distance <= radius
 
@@ -37,6 +47,7 @@ def compute_checks(
 
     return DeterministicChecks(
         distance_km=distance,
+        nearest_location=nearest[0].label if nearest else None,
         within_radius=within_radius,
         price_within_budget=price_within_budget,
         over_budget_eur=over_budget,

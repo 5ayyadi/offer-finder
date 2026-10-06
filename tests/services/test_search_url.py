@@ -1,6 +1,7 @@
 from urllib.parse import parse_qs, urlsplit
 
-from offer_finder.services.search_url import build_search_url
+from offer_finder.core.models import Location
+from offer_finder.services.search_url import build_search_url, build_search_urls
 from tests.helpers.factories import make_spec
 
 
@@ -10,7 +11,7 @@ def _query(url: str) -> dict[str, list[str]]:
 
 def test_search_url_uses_search_form_endpoint_with_all_filters():
     spec = make_spec(query="OLED 65 Zoll", plz="55116", radius_km=30, min_price_eur=200, max_price_eur=700)
-    url = build_search_url(spec)
+    url = build_search_url(spec, spec.locations[0])
     assert url.startswith("https://www.kleinanzeigen.de/s-suchanfrage.html?")
     assert _query(url) == {
         "keywords": ["OLED 65 Zoll"],
@@ -22,11 +23,22 @@ def test_search_url_uses_search_form_endpoint_with_all_filters():
 
 
 def test_search_url_omits_unset_filters():
-    url = build_search_url(make_spec(radius_km=None, min_price_eur=None, max_price_eur=None))
+    spec = make_spec(radius_km=None, min_price_eur=None, max_price_eur=None)
+    url = build_search_url(spec, spec.locations[0])
     assert set(_query(url)) == {"keywords", "locationStr"}
 
 
 def test_search_url_encodes_umlauts_and_spaces():
-    url = build_search_url(make_spec(query="Kühlschrank groß"))
+    spec = make_spec(query="Kühlschrank groß")
+    url = build_search_url(spec, spec.locations[0])
     assert "Kühlschrank" not in url
     assert _query(url)["keywords"] == ["Kühlschrank groß"]
+
+
+def test_one_search_url_per_city():
+    spec = make_spec(locations=[Location(name="Mainz", plz="55116"), Location(name="Mannheim", plz="68159")])
+    urls = build_search_urls(spec)
+    assert [(location.name, _query(url)["locationStr"]) for location, url in urls] == [
+        ("Mainz", ["55116"]),
+        ("Mannheim", ["68159"]),
+    ]

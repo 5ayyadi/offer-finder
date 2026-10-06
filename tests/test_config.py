@@ -11,7 +11,8 @@ def _settings(monkeypatch, **values):
 def test_settings_load_with_defaults(monkeypatch):
     settings = _settings(monkeypatch)
     assert settings.home_plz == "10115"
-    assert settings.max_requests_per_run == 20
+    assert settings.max_requests_per_run == 40
+    assert settings.default_radius_km == 20
     assert settings.dry_run is True
     assert settings.recommendation_threshold == 70
     assert settings.db_path == "data/offer_finder.db"
@@ -39,3 +40,7 @@ def test_empty_values_from_env_example_are_accepted(monkeypatch, tmp_path):
     settings = Settings()
     assert settings.telegram_notify_chat_id is None
     assert settings.notify_chat_id == 123456789
+
+
+def test_blank_default_radius_means_any_distance(monkeypatch):
+    assert _settings(monkeypatch, default_radius_km="").default_radius_km is None

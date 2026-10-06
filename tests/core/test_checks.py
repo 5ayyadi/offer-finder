@@ -1,5 +1,5 @@
 from offer_finder.core.checks import compute_checks
-from offer_finder.core.models import FieldValue
+from offer_finder.core.models import FieldValue, Location
 from tests.helpers.factories import make_facts, make_spec
 
 # Mainz 55116 and Mainz 55118 are ~2 km apart; Wiesbaden 65183 ~10 km, Frankfurt 60311 ~35 km
@@ -70,4 +70,13 @@ def test_without_spec_distance_is_from_home_and_no_budget_applies():
     assert checks.distance_km is not None and 8 < checks.distance_km < 12
     assert checks.within_radius is None
     assert checks.price_within_budget is None
+    assert checks.hard_fail_reasons == []
+
+
+def test_distance_is_to_the_nearest_of_several_cities():
+    spec = make_spec(locations=[Location(name="Frankfurt", plz="60311"), Location(name="Mainz", plz="55116")], radius_km=15)
+    checks = compute_checks(_facts(plz="65183"), spec, PLZ_TABLE, "10115")
+    assert checks.nearest_location == "Mainz"
+    assert checks.distance_km is not None and 8 < checks.distance_km < 12
+    assert checks.within_radius is True
     assert checks.hard_fail_reasons == []

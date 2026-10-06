@@ -90,7 +90,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     settings: Settings = context.bot_data["settings"]
     try:
-        turn = await asyncio.to_thread(next_turn, list(history), context.bot_data["llm"], settings.home_plz)
+        turn = await asyncio.to_thread(
+            next_turn,
+            list(history),
+            context.bot_data["llm"],
+            settings.home_plz,
+            default_radius_km=settings.default_radius_km,
+        )
     except SpecError as exc:
         history.pop()
         logger.warning("chat %d: %s", chat_id, exc)

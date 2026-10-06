@@ -62,7 +62,13 @@ async def _send_to_telegram(settings: Settings, search_spec_id: int | None) -> i
 def cmd_search(settings: Settings, args: argparse.Namespace) -> int:
     provider = runner.make_provider(settings)
     try:
-        turn = next_turn([("user", args.text)], provider, settings.home_plz, max_questions=0)
+        turn = next_turn(
+            [("user", args.text)],
+            provider,
+            settings.home_plz,
+            max_questions=0,
+            default_radius_km=settings.default_radius_km,
+        )
     except SpecError as exc:
         print(f"Could not build a search from that: {exc}")
         return 1

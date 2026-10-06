@@ -4,7 +4,7 @@ SQLite DB. Nothing here touches the network."""
 
 import logging
 
-from offer_finder.core.models import ListingRef
+from offer_finder.core.models import ListingRef, Location
 from offer_finder.core.pipeline import Pipeline
 from offer_finder.services.fetch import BudgetExhausted, FetchFailed
 from offer_finder.storage import db
@@ -48,7 +48,7 @@ def test_search_logs_each_step_and_every_verdict(conn, caplog):
     with caplog.at_level(logging.INFO):
         _pipeline(conn).run_search(spec_id, spec)
     log = caplog.text
-    assert f"search {spec_id}: results page has 2 listings (2 new, 0 outside price/radius)" in log
+    assert f"search {spec_id}: 1 results page(s) have 2 listings (2 new, 0 outside price/radius)" in log
     assert f"search {spec_id}: fetching 2 detail pages" in log
     assert f"search {spec_id}: evaluating 2 listings" in log
     verdicts = [r.getMessage() for r in caplog.records if "/100 " in r.getMessage()]
@@ -66,11 +66,12 @@ def test_progress_counts_up_through_detail_pages_then_evaluations(conn):
     pipeline.run_search(spec_id, spec)
 
     assert [(e.stage, e.done, e.total) for e in events] == [
+        ("results", 0, 1),
         ("fetching", 0, 2), ("fetching", 1, 2), ("fetching", 2, 2),
         ("evaluating", 0, 2), ("evaluating", 1, 2), ("evaluating", 2, 2),
     ]
     assert events[-1].report.recommended == 1
-    assert events[0].report.found == 2
+    assert events[1].report.found == 2
 
 
 def test_budget_stop_is_logged_as_a_warning(conn, caplog):
@@ -184,6 +185,23 @@ def test_card_outside_radius_is_stored_but_never_fetched_or_evaluated(conn):
     assert _status(conn, SAMSUNG_ID) == "out_of_range"
     assert all(SAMSUNG_ID not in url for url in fetcher.detail_calls())
     assert llm.calls == 1
+
+
+def test_one_results_page_per_city_and_cards_found_twice_count_once(conn):
+    # around Siegen and Berlin: the Samsung card (Berlin) is in range of the second city
+    locations = [Location(name="Siegen", plz="57074"), Location(name="Berlin", plz="10115")]
+    spec_id, spec = _spec(conn, locations=locations, radius_km=50)
+    fetcher = FakeFetcher()
+    events = []
+    pipeline = _pipeline(conn, fetcher)
+    pipeline.on_progress = events.append
+    report = pipeline.run_search(spec_id, spec)
+
+    search_urls = [url for url, page_type in fetcher.calls if page_type == "search"]
+    assert len(search_urls) == 2
+    assert "locationStr=57074" in search_urls[0] and "locationStr=10115" in search_urls[1]
+    assert (report.found, report.out_of_range, report.evaluated) == (2, 0, 2)
+    assert [(e.stage, e.done, e.total) for e in events[:2]] == [("results", 0, 2), ("results", 1, 2)]
 
 
 def test_detail_page_contradicting_the_card_still_fails_the_hard_check(conn):

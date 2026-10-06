@@ -25,10 +25,11 @@ class Settings(BaseSettings):
 
     # Search / evaluation
     home_plz: str = "10115"
+    default_radius_km: int | None = 20  # when the buyer gives no distance; blank = any distance
     recommendation_threshold: int = 70
 
     # Fetching / anti-blocking
-    max_requests_per_run: int = 20
+    max_requests_per_run: int = 40  # one results page per city + detail pages
     fetch_delay_floor_search_s: float = 2.0
     fetch_delay_floor_detail_s: float = 4.0
     fetch_delay_jitter_s: float = 2.0
@@ -53,7 +54,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_path: str = "data/logs/offer_finder.log"
 
-    @field_validator("telegram_notify_chat_id", mode="before")
+    @field_validator("telegram_notify_chat_id", "default_radius_km", mode="before")
     @classmethod
     def _blank_is_unset(cls, value: Any) -> Any:
         return None if value == "" else value

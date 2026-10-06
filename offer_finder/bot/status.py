@@ -33,10 +33,11 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
-def _done_line(step: str, report: RunReport) -> str:
+def _done_line(step: str, report: RunReport, spec: SearchSpec) -> str:
     if step == "results":
         outside = f" ({report.out_of_range} outside your price/radius)" if report.out_of_range else ""
-        return f"✅ Results page: {_count(report.found, 'listing')}{outside}"
+        pages = "Results page" if len(spec.locations) == 1 else f"Results pages ({len(spec.locations)} places)"
+        return f"✅ {pages}: {_count(report.found, 'listing')}{outside}"
     if step == "fetching":
         if report.fetched == 0 and report.fetch_failed == 0:
             return "✅ No new listing pages to read"
@@ -48,9 +49,13 @@ def _done_line(step: str, report: RunReport) -> str:
     return f"✅ Evaluated {report.evaluated} · {report.recommended} recommended{failed}"
 
 
-def _active_line(step: str, progress: Progress | None) -> str:
-    if progress is None or step == "results":
-        return "⏳ Loading the results page…"
+def _active_line(step: str, progress: Progress | None, spec: SearchSpec) -> str:
+    if step == "results":
+        if len(spec.locations) == 1:
+            return "⏳ Loading the results page…"
+        done = progress.done if progress else 0
+        return f"⏳ Loading results pages: {done + 1}/{len(spec.locations)} ({spec.locations[done].label})"
+    assert progress is not None
     if step == "fetching":
         return f"⏳ Reading listing pages: {progress.done}/{progress.total}"
     return f"⏳ Evaluating: {progress.done}/{progress.total} · {progress.report.recommended} good so far"
@@ -74,9 +79,9 @@ def format_status(
 
     for index, step in enumerate(_STEPS):
         if index < current or (finished_s is not None and index >= current >= 0):
-            lines.append(_done_line(step, report))
+            lines.append(_done_line(step, report, spec))
         elif index == current:
-            lines.append(f"❌ Stopped: {error}" if error else _active_line(step, progress))
+            lines.append(f"❌ Stopped: {error}" if error else _active_line(step, progress, spec))
         elif error is None:
             lines.append(_PENDING[step])
 
