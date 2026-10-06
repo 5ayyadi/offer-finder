@@ -15,15 +15,24 @@ from telegram.ext import Application
 
 from offer_finder import runner
 from offer_finder.bot.conversation import build_conversation
-from offer_finder.bot.notify import Sender, format_summary, send_pending
+from offer_finder.bot.notify import Sender, format_summary, send_new_picks, send_search_results
+from offer_finder.bot.offers import build_offer_handler
 from offer_finder.bot.status import StatusMessage
 from offer_finder.config import Settings
 from offer_finder.core.models import SearchSpec
 from offer_finder.services.gmail import GmailClient, GoogleGmailClient
 from offer_finder.services.llm import LLMProvider
-from offer_finder.services.search_url import build_search_url
+from offer_finder.services.search_url import build_search_urls
 
 logger = logging.getLogger(__name__)
+
+
+def save_hint(spec: SearchSpec) -> str:
+    urls = build_search_urls(spec)
+    if len(urls) == 1:
+        return f"To get new matches by email, save this search on Kleinanzeigen:\n{urls[0][1]}"
+    links = "\n".join(f"{location.label}: {url}" for location, url in urls)
+    return f"To get new matches by email, save these searches on Kleinanzeigen:\n{links}"
 
 
 async def search_and_notify(
@@ -51,18 +60,17 @@ async def search_and_notify(
         await status.refresh(finished_s=time.monotonic() - started)
         conn = runner.open_db(settings)
         try:
-            sent = await send_pending(bot, conn, chat_id, outcome.search_spec_id)
+            listed = await send_search_results(bot, conn, chat_id, outcome.search_spec_id)
         finally:
             conn.close()
         report = outcome.report
         logger.info(
-            "search %d done in %ds: %d found, %d evaluated, %d recommended, %d sent",
+            "search %d done in %ds: %d found, %d evaluated, %d recommended, %d listed",
             outcome.search_spec_id, time.monotonic() - started, report.found, report.evaluated,
-            report.recommended, sent,
+            report.recommended, listed,
         )
-        summary = format_summary(outcome.report, sent, settings.recommendation_threshold)
-        save_hint = f"To get new matches by email, save this search on Kleinanzeigen:\n{build_search_url(spec)}"
-        await bot.send_message(chat_id, f"{summary}\n\n{save_hint}")
+        summary = format_summary(outcome.report, settings.recommendation_threshold)
+        await bot.send_message(chat_id, f"{summary}\n\n{save_hint(spec)}")
     except Exception as exc:
         logger.exception("search failed")
         await bot.send_message(chat_id, f"Something went wrong during the search: {exc}")
@@ -82,11 +90,11 @@ async def gmail_poll_and_notify(
             return
         conn = runner.open_db(settings)
         try:
-            sent = await send_pending(bot, conn, chat_id)
+            listed = await send_new_picks(bot, conn, chat_id)
         finally:
             conn.close()
-        if outcome.messages or sent:
-            logger.info("gmail poll: %d new emails, %d notifications sent", outcome.messages, sent)
+        if outcome.messages or listed:
+            logger.info("gmail poll: %d new emails, %d new picks listed", outcome.messages, listed)
     except Exception:
         logger.exception("gmail poll failed")
 
@@ -101,6 +109,7 @@ def build_application(settings: Settings, gmail_client: GmailClient | None = Non
         application.create_task(search_and_notify(bot, settings, llm, lock, chat_id, spec))
 
     application.bot_data.update(settings=settings, llm=llm, start_search=start_search)
+    application.add_handler(build_offer_handler())
     application.add_handler(build_conversation(settings.telegram_allowlist))
 
     if settings.gmail_enabled:

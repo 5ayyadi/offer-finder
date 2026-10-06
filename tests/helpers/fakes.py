@@ -105,12 +105,14 @@ class FakeBot:
         self._fail_html = fail_html  # Telegram rejecting the HTML markup
         self._last_message_id = 0
 
-    async def send_message(self, chat_id, text, parse_mode=None, **kwargs):
+    async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None, **kwargs):
         if self._fail_all:
             raise NetworkError("down")
         if self._fail_html and parse_mode == "HTML":
             raise BadRequest("Can't parse entities: unsupported start tag")
-        self.sent.append(("message", {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}))
+        self.sent.append(
+            ("message", {"chat_id": chat_id, "text": text, "parse_mode": parse_mode, "reply_markup": reply_markup})
+        )
         self._last_message_id += 1
         return SimpleNamespace(message_id=self._last_message_id)
 

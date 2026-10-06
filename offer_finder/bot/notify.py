@@ -1,6 +1,7 @@
-"""Telegram notifications. Reads recommended-but-unsent listings from the DB
-and records each one only after Telegram accepted it, so a failed send is
-retried next time and a successful one is never repeated.
+"""Telegram results. A search (or a batch of alert emails) ends in one ranked
+text list of the picks, with numbered buttons; a button sends that offer's
+full card with photos (send_offer). Picks are recorded as notified only after
+Telegram accepted the list, so a failed send is retried next time.
 """
 
 from __future__ import annotations
@@ -8,14 +9,16 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from dataclasses import dataclass
 from html import escape
 from typing import Any, Protocol
 
-from telegram import InputMediaPhoto
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.error import BadRequest, TelegramError
 
 from offer_finder.core.models import Evaluation, Listing
 from offer_finder.core.pipeline import RunReport
+from offer_finder.core.search_spec import places_text
 from offer_finder.storage import db
 
 logger = logging.getLogger(__name__)
@@ -30,6 +33,11 @@ _UNKNOWN_MAX = 40
 _SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 _VERDICT_WORDS = {"good": "good", "ok": "OK", "poor": "poor", "unclear": "unclear"}
 _MATCH_NOTES = {"partial": " · partly matches", "unclear": " · match unclear", "mismatch": " · doesn't match"}
+_TIER_WORDS = {"top": "top tier", "upper_mid": "upper mid", "mid": "mid tier", "budget": "budget", "unknown": None}
+_LIST_TITLE_MAX = 50
+_SUMMARY_MAX = 160
+_BUTTONS_PER_ROW = 5
+OFFER_CALLBACK_PREFIX = "offer:"
 
 
 class Sender(Protocol):
@@ -124,31 +132,137 @@ async def _send_one(bot: Sender, chat_id: int, listing: Listing, evaluation: Eva
         await bot.send_message(chat_id, format_notification(listing, evaluation, html=False))
 
 
-async def send_pending(
-    bot: Sender, conn: sqlite3.Connection, chat_id: int, search_spec_id: int | None = None
-) -> int:
-    sent = 0
-    for listing, evaluation, evaluation_id in db.pending_notifications(conn, chat_id, search_spec_id):
+async def send_offer(bot: Sender, conn: sqlite3.Connection, chat_id: int, evaluation_id: int) -> bool:
+    """The full card behind a list button. False if the evaluation is gone."""
+    found = db.get_evaluation(conn, evaluation_id)
+    if found is None:
+        return False
+    await _send_one(bot, chat_id, *found)
+    return True
+
+
+# --- the pick list -----------------------------------------------------------------
+
+
+@dataclass
+class Pick:
+    listing: Listing
+    evaluation: Evaluation
+    evaluation_id: int
+    seen_before: bool = False
+
+
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def _list_entry(number: int, pick: Pick, html: bool) -> str:
+    listing, evaluation = pick.listing, pick.evaluation
+    judgment, checks = evaluation.judgment, evaluation.checks
+
+    def text(value: str) -> str:
+        return escape(value) if html else value
+
+    heading = text(f"{number}. {judgment.score}/100 · {_short(listing.title, _LIST_TITLE_MAX)} — "
+                   f"{listing.price_raw or 'price unknown'}")
+    place = _town(listing.location_text)
+    if checks.distance_km is not None:
+        place += f" · {checks.distance_km:g} km"
+        if checks.nearest_location:
+            place += f" from {checks.nearest_location}"
+    details = [place]
+    tier = _TIER_WORDS[judgment.product_assessment.tier]
+    if tier:
+        details.append(tier)
+    if pick.seen_before:
+        details.append("seen before")
+    lines = [
+        f"<b>{heading}</b>" if html else heading,
+        text(" · ".join(details)),
+        text(_short(judgment.product_assessment.summary, _SUMMARY_MAX)),
+        text(_short(judgment.deal_assessment.summary, _SUMMARY_MAX)),
+    ]
+    return "\n".join(lines)
+
+
+def format_pick_list(
+    picks: list[Pick], header: str, limit: int = MESSAGE_LIMIT, html: bool = True
+) -> list[tuple[str, list[tuple[int, int]]]]:
+    """The ranked list as messages that each fit Telegram's limit, with the
+    (number, evaluation id) pairs whose buttons go under each message."""
+    chunks: list[tuple[str, list[tuple[int, int]]]] = []
+    blocks: list[str] = [escape(header, quote=False) if html else header]
+    buttons: list[tuple[int, int]] = []
+    for number, pick in enumerate(picks, start=1):
+        entry = _list_entry(number, pick, html)
+        if buttons and len("\n\n".join([*blocks, entry])) > limit:
+            chunks.append(("\n\n".join(blocks), buttons))
+            blocks, buttons = [], []
+        blocks.append(entry)
+        buttons.append((number, pick.evaluation_id))
+    chunks.append(("\n\n".join(blocks), buttons))
+    return chunks
+
+
+def offer_keyboard(buttons: list[tuple[int, int]]) -> InlineKeyboardMarkup:
+    keys = [InlineKeyboardButton(str(n), callback_data=f"{OFFER_CALLBACK_PREFIX}{eid}") for n, eid in buttons]
+    return InlineKeyboardMarkup([keys[i : i + _BUTTONS_PER_ROW] for i in range(0, len(keys), _BUTTONS_PER_ROW)])
+
+
+async def _send_pick_list(bot: Sender, conn: sqlite3.Connection, chat_id: int, picks: list[Pick], header: str) -> int:
+    """Send the list; record each part's picks once Telegram accepted that part.
+    Returns how many picks were listed."""
+    listed = 0
+    html_chunks = format_pick_list(picks, header)
+    plain_chunks = format_pick_list(picks, header, html=False)
+    for (html_text, buttons), (plain_text, _) in zip(html_chunks, plain_chunks, strict=True):
+        markup = offer_keyboard(buttons)
         try:
-            await _send_one(bot, chat_id, listing, evaluation)
+            try:
+                await bot.send_message(chat_id, html_text, parse_mode="HTML", reply_markup=markup)
+            except BadRequest as exc:  # should not happen (everything is escaped), but never lose a list
+                logger.warning("chat %d: HTML list was rejected (%s), sending plain text", chat_id, exc)
+                await bot.send_message(chat_id, plain_text, reply_markup=markup)
         except TelegramError as exc:
-            logger.warning("notification for %s failed, will retry: %s", listing.listing_id, exc)
-            continue
-        db.record_notification(conn, listing.listing_id, chat_id, evaluation_id)
-        logger.info("chat %d: sent %s (%d/100)", chat_id, listing.listing_id, evaluation.judgment.score)
-        sent += 1
-    return sent
+            logger.warning("chat %d: sending the pick list failed, will retry: %s", chat_id, exc)
+            break
+        chunk_picks = picks[listed : listed + len(buttons)]
+        for pick in chunk_picks:
+            db.record_notification(conn, pick.listing.listing_id, chat_id, pick.evaluation_id)
+        listed += len(chunk_picks)
+    if listed:
+        logger.info("chat %d: sent a list of %s", chat_id, _plural(listed, "pick"))
+    return listed
 
 
-def format_summary(report: RunReport, sent: int, threshold: int) -> str:
+async def send_search_results(bot: Sender, conn: sqlite3.Connection, chat_id: int, search_spec_id: int) -> int:
+    """All picks of one search, including ones listed before (marked as seen)."""
+    picks = [Pick(*row) for row in db.picks_for_spec(conn, chat_id, search_spec_id)]
+    spec = db.get_search_spec(conn, search_spec_id)
+    if not picks or spec is None:
+        return 0
+    header = (f'🔎 {_plural(len(picks), "pick")} for "{spec.query}" · {places_text(spec)}\n'
+              "Tap a number for photos and the link.")
+    return await _send_pick_list(bot, conn, chat_id, picks, header)
+
+
+async def send_new_picks(bot: Sender, conn: sqlite3.Connection, chat_id: int) -> int:
+    """Picks from alert emails this chat hasn't been sent yet."""
+    picks = [Pick(*row) for row in db.pending_notifications(conn, chat_id)]
+    if not picks:
+        return 0
+    header = (f"📬 {_plural(len(picks), 'new pick')} from your Kleinanzeigen alerts\n"
+              "Tap a number for photos and the link.")
+    return await _send_pick_list(bot, conn, chat_id, picks, header)
+
+
+def format_summary(report: RunReport, threshold: int) -> str:
     if report.found == 0:
         lines = ["No listings found for this search."]
     else:
         lines = [f"Checked {report.found} listings: {report.evaluated} evaluated, {report.recommended} recommended."]
     if report.recommended == 0 and report.best_score is not None:
         lines.append(f"Nothing reached {threshold}/100 — best was {report.best_score}/100.")
-    if report.recommended > sent:
-        lines.append(f"{report.recommended - sent} of them were already sent before.")
     if report.out_of_range:
         lines.append(f"{report.out_of_range} were outside your price range or radius.")
     if report.fetch_failed:

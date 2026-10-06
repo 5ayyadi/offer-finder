@@ -293,6 +293,38 @@ def pending_notifications(
     return result
 
 
+def picks_for_spec(
+    conn: sqlite3.Connection, chat_id: int, search_spec_id: int
+) -> list[tuple[Listing, Evaluation, int, bool]]:
+    """Recommended listings of one search, best first: (listing, evaluation,
+    evaluation id, already sent to this chat before)."""
+    rows = conn.execute(
+        """
+        SELECT e.*, e.id AS evaluation_id, EXISTS (
+            SELECT 1 FROM notifications n WHERE n.listing_id = e.listing_id AND n.chat_id = :chat) AS seen
+        FROM evaluations e
+        WHERE e.recommended = 1 AND e.search_spec_id = :spec
+        ORDER BY e.score DESC, e.id
+        """,
+        {"spec": search_spec_id, "chat": chat_id},
+    ).fetchall()
+    result = []
+    for row in rows:
+        listing = get_listing(conn, row["listing_id"])
+        assert listing is not None  # enforced by the foreign key
+        result.append((listing, _row_to_evaluation(row), row["evaluation_id"], bool(row["seen"])))
+    return result
+
+
+def get_evaluation(conn: sqlite3.Connection, evaluation_id: int) -> tuple[Listing, Evaluation] | None:
+    row = conn.execute("SELECT * FROM evaluations WHERE id = ?", (evaluation_id,)).fetchone()
+    if row is None:
+        return None
+    listing = get_listing(conn, row["listing_id"])
+    assert listing is not None
+    return listing, _row_to_evaluation(row)
+
+
 def record_notification(conn: sqlite3.Connection, listing_id: str, chat_id: int, evaluation_id: int) -> None:
     with conn:
         conn.execute(

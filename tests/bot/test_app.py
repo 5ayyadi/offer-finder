@@ -9,7 +9,8 @@ import re
 from telegram.ext import ConversationHandler
 
 from offer_finder.bot.app import build_application, search_and_notify
-from tests.helpers.fakes import GRUNDIG_ID, FakeBot, ScriptedLLM, alert_gmail
+from offer_finder.bot.offers import show_offer
+from tests.helpers.fakes import FakeBot, ScriptedLLM, alert_gmail
 from tests.helpers.offline import (
     cache_email_details,
     cache_search_fixtures,
@@ -33,17 +34,19 @@ def _final_status(bot) -> str:
     return edits[-1]["text"]
 
 
-def test_confirmed_search_sends_the_good_listing_then_a_summary(tmp_path):
+def test_confirmed_search_sends_a_pick_list_then_a_summary(tmp_path):
     settings = offline_settings(tmp_path)
     cache_search_fixtures(settings)
     bot = FakeBot()
     _run_search(settings, bot)
 
     messages = _messages(bot)
-    assert [kind for kind, _ in messages] == ["message", "media_group", "message"]
+    assert [kind for kind, _ in messages] == ["message", "message", "message"]
     assert messages[0][1]["text"].startswith("🔎 Searching Kleinanzeigen")  # the live status message
-    caption = messages[1][1]["media"][0].caption
-    assert "85/100" in caption and "Grundig" in caption
+    pick_list = messages[1][1]
+    assert pick_list["text"].startswith('🔎 1 pick for "Fernseher"')
+    assert "85/100" in pick_list["text"] and "Grundig" in pick_list["text"]
+    assert [b.text for row in pick_list["reply_markup"].inline_keyboard for b in row] == ["1"]
     summary = messages[2][1]["text"]
     assert "Checked 2 listings: 2 evaluated, 1 recommended." in summary
 
@@ -66,11 +69,11 @@ def test_search_start_and_end_are_logged(tmp_path, caplog):
     with caplog.at_level(logging.INFO):
         _run_search(settings, FakeBot())
     assert 'search 1 (chat 42): "Fernseher"' in caplog.text
-    assert f"chat 42: sent {GRUNDIG_ID} (85/100)" in caplog.text
-    assert re.search(r"search 1 done in \d+s: 2 found, 2 evaluated, 1 recommended, 1 sent", caplog.text)
+    assert "chat 42: sent a list of 1 pick" in caplog.text
+    assert re.search(r"search 1 done in \d+s: 2 found, 2 evaluated, 1 recommended, 1 listed", caplog.text)
 
 
-def test_repeating_the_search_does_not_resend_the_listing(tmp_path):
+def test_repeating_the_search_lists_the_pick_again_as_seen(tmp_path):
     settings = offline_settings(tmp_path)
     cache_search_fixtures(settings)
     _run_search(settings, FakeBot())
@@ -78,8 +81,8 @@ def test_repeating_the_search_does_not_resend_the_listing(tmp_path):
     bot = FakeBot()
     _run_search(settings, bot)
     messages = _messages(bot)
-    assert [kind for kind, _ in messages] == ["message", "message"]  # status + summary
-    assert "already sent" in messages[1][1]["text"]
+    assert [kind for kind, _ in messages] == ["message", "message", "message"]  # status + list + summary
+    assert "seen before" in messages[1][1]["text"]
 
 
 def test_search_problem_is_reported_to_the_user(tmp_path):
@@ -96,7 +99,7 @@ def test_unexpected_crash_is_reported_instead_of_silence(tmp_path, monkeypatch):
     async def crash(*args, **kwargs):
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr("offer_finder.bot.app.send_pending", crash)
+    monkeypatch.setattr("offer_finder.bot.app.send_search_results", crash)
     bot = FakeBot()
     _run_search(settings, bot)
     assert "went wrong" in bot.sent[-1][1]["text"]
@@ -107,6 +110,7 @@ def test_build_application_wires_conversation_and_dependencies(tmp_path):
     application = build_application(settings)
     handlers = [h for group in application.handlers.values() for h in group]
     assert any(isinstance(h, ConversationHandler) for h in handlers)
+    assert any(getattr(h, "callback", None) is show_offer for h in handlers)
     assert {"settings", "llm", "start_search"} <= set(application.bot_data)
     assert application.job_queue is not None
     assert application.job_queue.jobs() == ()  # Gmail polling is off by default
@@ -121,15 +125,16 @@ def _poll(settings, bot):
     asyncio.run(gmail_poll_and_notify(bot, settings, ScriptedLLM(), asyncio.Lock(), alert_gmail()))
 
 
-def test_alert_email_listing_is_sent_to_telegram_exactly_once(tmp_path):
+def test_alert_email_listing_is_listed_on_telegram_exactly_once(tmp_path):
     settings = offline_settings(tmp_path, telegram_allowlist=[42])
     cache_email_details(settings)
     bot = FakeBot()
     _poll(settings, bot)
 
-    assert [kind for kind, _ in bot.sent] == ["media_group"]
+    assert [kind for kind, _ in bot.sent] == ["message"]
     assert bot.sent[0][1]["chat_id"] == 42
-    assert "Grundig" in bot.sent[0][1]["media"][0].caption
+    assert bot.sent[0][1]["text"].startswith("📬 1 new pick")
+    assert "Grundig" in bot.sent[0][1]["text"]
 
     _poll(settings, bot)
     assert len(bot.sent) == 1
@@ -164,3 +169,16 @@ def test_summary_offers_the_search_link_for_saving_on_kleinanzeigen(tmp_path):
     summary = bot.sent[-1][1]["text"]
     assert "save this search" in summary.lower()
     assert build_search_url(offline_spec()) in summary
+
+
+def test_summary_offers_one_saved_search_link_per_place(tmp_path, monkeypatch):
+    from offer_finder.bot.app import save_hint
+    from offer_finder.core.models import Location
+    from offer_finder.services.search_url import build_search_url
+    from tests.helpers.factories import make_spec
+
+    spec = make_spec(locations=[Location(name="Mainz", plz="55116"), Location(name="Mannheim", plz="68159")])
+    hint = save_hint(spec)
+    assert "save these searches" in hint
+    assert f"Mainz: {build_search_url(spec, spec.locations[0])}" in hint
+    assert f"Mannheim: {build_search_url(spec, spec.locations[1])}" in hint

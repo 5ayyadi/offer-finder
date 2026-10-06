@@ -43,6 +43,8 @@ CONFIRM_KEYBOARD = InlineKeyboardMarkup(
     ]
 )
 
+_CONFIRM_BUTTONS = "^(search|change|cancel)$"  # the pick list's offer buttons are handled in offers.py
+
 GREETING = (
     "Tell me what you're looking for on Kleinanzeigen, for example:\n"
     '"a good 65+ inch OLED TV around Mainz under €700"'
@@ -170,11 +172,11 @@ def build_conversation(allowlist: list[int]) -> ConversationHandler[Any]:
             entry_points=[
                 CommandHandler("start", start, filters=allowed),
                 MessageHandler(text, on_text),
-                CallbackQueryHandler(on_button),  # stale buttons from an ended conversation
+                CallbackQueryHandler(on_button, pattern=_CONFIRM_BUTTONS),  # stale buttons from an ended conversation
             ],
             states={
                 COLLECTING: [MessageHandler(text, on_text)],
-                CONFIRMING: [CallbackQueryHandler(on_button), MessageHandler(text, on_text)],
+                CONFIRMING: [CallbackQueryHandler(on_button, pattern=_CONFIRM_BUTTONS), MessageHandler(text, on_text)],
             },
             fallbacks=[CommandHandler("cancel", cancel, filters=allowed), CommandHandler("start", start, filters=allowed)],
             allow_reentry=True,

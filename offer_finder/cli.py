@@ -18,7 +18,12 @@ import sys
 from pathlib import Path
 
 from offer_finder import runner
-from offer_finder.bot.notify import format_notification, format_summary, send_pending
+from offer_finder.bot.notify import (
+    format_notification,
+    format_summary,
+    send_new_picks,
+    send_search_results,
+)
 from offer_finder.config import Settings
 from offer_finder.core.models import Evaluation, Listing
 from offer_finder.core.search_spec import SpecError, describe, next_turn
@@ -54,7 +59,9 @@ async def _send_to_telegram(settings: Settings, search_spec_id: int | None) -> i
     async with bot:
         conn = runner.open_db(settings)
         try:
-            return await send_pending(bot, conn, chat_id, search_spec_id)
+            if search_spec_id is None:
+                return await send_new_picks(bot, conn, chat_id)
+            return await send_search_results(bot, conn, chat_id, search_spec_id)
         finally:
             conn.close()
 
@@ -85,9 +92,9 @@ def cmd_search(settings: Settings, args: argparse.Namespace) -> int:
             _print_evaluation(listing, evaluation)
     finally:
         conn.close()
-    print(format_summary(outcome.report, sent=outcome.report.recommended, threshold=settings.recommendation_threshold))
+    print(format_summary(outcome.report, threshold=settings.recommendation_threshold))
     if args.notify:
-        print(f"Sent {asyncio.run(_send_to_telegram(settings, outcome.search_spec_id))} Telegram notification(s).")
+        print(f"Sent a Telegram list of {asyncio.run(_send_to_telegram(settings, outcome.search_spec_id))} pick(s).")
     return 0
 
 
@@ -127,7 +134,7 @@ def cmd_gmail_poll(settings: Settings, args: argparse.Namespace) -> int:
     finally:
         conn.close()
     if args.notify:
-        print(f"Sent {asyncio.run(_send_to_telegram(settings, None))} Telegram notification(s).")
+        print(f"Sent a Telegram list of {asyncio.run(_send_to_telegram(settings, None))} new pick(s).")
     return 1 if outcome.error else 0
 
 

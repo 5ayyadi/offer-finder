@@ -165,6 +165,29 @@ def test_pending_notifications_can_be_scoped_to_a_spec(conn):
     assert [listing.listing_id for listing, _, _ in pending] == ["2"]
 
 
+def test_picks_for_spec_are_recommended_best_first_and_marked_if_seen(conn):
+    spec_id = db.insert_search_spec(conn, 42, make_spec())
+    for listing_id in ("a", "b", "c"):
+        db.insert_discovered(conn, make_listing(listing_id))
+    db.save_evaluation(conn, make_evaluation("a", search_spec_id=spec_id, score=75))
+    seen_id = db.save_evaluation(conn, make_evaluation("b", search_spec_id=spec_id, score=90))
+    db.save_evaluation(conn, make_evaluation("c", search_spec_id=spec_id, recommended=False, score=40))
+    db.record_notification(conn, "b", 42, seen_id)
+
+    picks = db.picks_for_spec(conn, 42, spec_id)
+    assert [(listing.listing_id, seen) for listing, _, _, seen in picks] == [("b", True), ("a", False)]
+    assert picks[0][2] == seen_id
+    assert [seen for *_, seen in db.picks_for_spec(conn, 7, spec_id)] == [False, False]  # other chat
+
+
+def test_get_evaluation_by_id(conn):
+    db.insert_discovered(conn, make_listing("a"))
+    evaluation_id = db.save_evaluation(conn, make_evaluation("a", search_spec_id=None))
+    found = db.get_evaluation(conn, evaluation_id)
+    assert found is not None and found[0].listing_id == "a" and found[1].judgment.score == 80
+    assert db.get_evaluation(conn, evaluation_id + 1) is None
+
+
 # --- gmail messages --------------------------------------------------------------
 
 
