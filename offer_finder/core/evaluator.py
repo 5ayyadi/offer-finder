@@ -25,11 +25,19 @@ from offer_finder.core.models import (
 )
 from offer_finder.services.llm import LLMProvider, complete_validated
 
-EVALUATOR_PROMPT_VERSION = "2026-09-25.2"
+EVALUATOR_PROMPT_VERSION = "2026-10-06.1"
 
 SYSTEM_PROMPT = """You evaluate one Kleinanzeigen.de listing (German classifieds) for a buyer. Judge two things separately:
 
-1. product_assessment: the product itself, ignoring the price. Is it a good product of its kind, and does it match the buyer's requirements (requirements_match)? A product that clearly lacks a stated requirement is "mismatch"; if the listing doesn't say, use "unclear".
+The buyer always wants the best product their budget can buy: second-hand makes top products affordable, so a top-tier product at a fair price beats a budget product at a low price.
+
+1. product_assessment: the product itself, ignoring the price. Does it match the buyer's requirements (requirements_match)? A product that clearly lacks a stated requirement is "mismatch"; if the listing doesn't say, use "unclear". And where does it sit in its category (tier), judged against the spec's quality_guide (if there is one) and your general product knowledge:
+   - "top": flagship or best-in-class of its category (e.g. an LG C1 OLED TV)
+   - "upper_mid": clearly above average, a strong choice
+   - "mid": ordinary, nothing wrong with it but nothing special
+   - "budget": entry-level, low-end, or so outdated that it is no longer a good buy
+   - "unknown": the listing doesn't say enough to tell what the product is
+   Infer the product from the title, description and attributes; the exact model does not have to be named, but don't go beyond what they support.
 2. deal_assessment: this listing as a purchase, ignoring how good the product is in general. Consider the price against the buyer's budget, condition, defects, completeness (accessories, cables, remote, ...), missing information, seller or listing red flags (shipping only, unusual payment methods, vague or copied text, too good to be true), and distance.
 
 A great product at a bad price is product "good" / deal "poor". A mediocre product at a great price can be product "ok" / deal "good".
@@ -43,7 +51,7 @@ Grounding rules:
 - Trust the deterministic checks. Do not redo distance or price arithmetic.
 - Red-flag hints are keyword matches and can be false positives. Read the text yourself.
 
-score (0-100): how worthwhile it is for this buyer to contact the seller. 80+ strong candidate, 60-79 worth a look, below 60 not worth it. A clear requirements mismatch or a serious red flag belongs below 40.
+score (0-100): how worthwhile it is for this buyer to contact the seller. 80+ strong candidate, 60-79 worth a look, below 60 not worth it. A clear requirements mismatch or a serious red flag belongs below 40. Product tier weighs heavily: a "top" or "upper_mid" product in fine condition at an acceptable price deserves 80+; scores of "mid" products are capped at 70 and "budget" products at 55 afterwards.
 confidence: how sure you can be, given how much the listing says.
 Write in English and keep it short, it is read on a phone:
 - each highlight and concern claim: a phrase of at most 6 words, like "Remote included" or "Small pixel defect on the edge"
@@ -61,9 +69,10 @@ JUDGMENT_SCHEMA: dict[str, Any] = {
             "properties": {
                 "verdict": _VERDICT,
                 "requirements_match": {"type": "string", "enum": ["match", "partial", "mismatch", "unclear"]},
+                "tier": {"type": "string", "enum": ["top", "upper_mid", "mid", "budget", "unknown"]},
                 "summary": {"type": "string"},
             },
-            "required": ["verdict", "requirements_match", "summary"],
+            "required": ["verdict", "requirements_match", "tier", "summary"],
             "additionalProperties": False,
         },
         "deal_assessment": {
@@ -178,6 +187,17 @@ def verify_evidence(judgment: Judgment, facts: ListingFacts, checks: Determinist
     )
 
 
+TIER_SCORE_CAPS = {"mid": 70, "budget": 55}
+
+
+def cap_score(judgment: Judgment) -> Judgment:
+    """The buyer wants the best: lower tiers can't score high, whatever the model said."""
+    cap = TIER_SCORE_CAPS.get(judgment.product_assessment.tier)
+    if cap is None or judgment.score <= cap:
+        return judgment
+    return judgment.model_copy(update={"score": cap})
+
+
 def is_recommended(judgment: Judgment, checks: DeterministicChecks, threshold: int) -> bool:
     return (
         judgment.score >= threshold
@@ -202,7 +222,7 @@ def evaluate(
     except Exception as exc:
         raise EvaluationError(f"evaluating {listing.listing_id} failed: {exc}") from exc
 
-    judgment = verify_evidence(judgment, facts, checks)
+    judgment = cap_score(verify_evidence(judgment, facts, checks))
     return Evaluation(
         listing_id=listing.listing_id,
         search_spec_id=search_spec_id,

@@ -134,11 +134,15 @@ class DeterministicChecks(BaseModel):
 Verdict = Literal["good", "ok", "poor", "unclear"]
 
 
+Tier = Literal["top", "upper_mid", "mid", "budget", "unknown"]
+
+
 class ProductAssessment(BaseModel):
     """Is the product itself good and what the buyer wants, regardless of price."""
 
     verdict: Verdict
     requirements_match: Literal["match", "partial", "mismatch", "unclear"]
+    tier: Tier = "unknown"  # where it sits in its category; "unknown" for evaluations before 2026-10-06
     summary: str
 
 

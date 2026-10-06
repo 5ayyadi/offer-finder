@@ -36,7 +36,7 @@ class FakeFetcher:
 def judgment_response(score: int) -> dict:
     """A raw evaluator LLM response."""
     return {
-        "product_assessment": {"verdict": "good", "requirements_match": "match", "summary": "a TV"},
+        "product_assessment": {"verdict": "good", "requirements_match": "match", "tier": "top", "summary": "a TV"},
         "deal_assessment": {"verdict": "good" if score > 50 else "poor", "summary": "deal"},
         "highlights": [{"claim": "4K", "evidence": "4K Ultra HD"}],
         "concerns": [],

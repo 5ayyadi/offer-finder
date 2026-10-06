@@ -3,6 +3,7 @@ import json
 import pytest
 
 from offer_finder.core.evaluator import (
+    EVALUATOR_PROMPT_VERSION,
     SYSTEM_PROMPT,
     EvaluationError,
     build_user_prompt,
@@ -17,7 +18,9 @@ from tests.helpers.fakes import FakeProvider
 
 def _llm_response(**overrides):
     values = {
-        "product_assessment": {"verdict": "good", "requirements_match": "match", "summary": "65 inch OLED"},
+        "product_assessment": {
+            "verdict": "good", "requirements_match": "match", "tier": "top", "summary": "65 inch OLED",
+        },
         "deal_assessment": {"verdict": "poor", "summary": "At the top of the budget, no remote"},
         "highlights": [{"claim": "It is an OLED", "evidence": "LG OLED 65 Zoll"}],
         "concerns": [{"claim": "Price at budget limit", "evidence": "fact:price_eur", "severity": "low"}],
@@ -177,3 +180,39 @@ def test_prompt_includes_structured_attributes_and_they_are_citeable():
     assert '"Versand": "Nur Abholung"' in build_user_prompt(facts, make_checks(), make_spec())
     judgment = verify_evidence(_claims("fact:attributes"), facts, make_checks())
     assert judgment.highlights[0].verified is True
+
+
+# --- product tier --------------------------------------------------------------------
+
+
+def _tiered(tier, score):
+    response = _llm_response(score=score)
+    response["product_assessment"] = {**response["product_assessment"], "tier": tier}
+    return response
+
+
+@pytest.mark.parametrize(
+    ("tier", "llm_score", "score", "recommended"),
+    [
+        ("top", 90, 90, True),
+        ("upper_mid", 82, 82, True),
+        ("mid", 85, 70, True),
+        ("budget", 88, 55, False),
+        ("unknown", 80, 80, True),
+    ],
+)
+def test_lower_tiers_cap_the_score_in_python(tier, llm_score, score, recommended):
+    evaluation = _evaluate(FakeProvider(_tiered(tier, llm_score)), threshold=70)
+    assert evaluation.judgment.product_assessment.tier == tier
+    assert evaluation.judgment.score == score
+    assert evaluation.recommended is recommended
+    assert evaluation.raw_response["score"] == llm_score  # what the model said stays replayable
+
+
+def test_prompt_judges_tier_against_the_quality_guide():
+    assert "quality_guide" in SYSTEM_PROMPT and "tier" in SYSTEM_PROMPT
+    assert "best" in SYSTEM_PROMPT
+    spec = make_spec(quality_guide="Top tier: Wi-Fi 6E routers like FRITZ!Box 5690.")
+    prompt = build_user_prompt(make_facts(), make_checks(), spec)
+    assert "FRITZ!Box 5690" in prompt
+    assert EVALUATOR_PROMPT_VERSION >= "2026-10-06"
