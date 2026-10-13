@@ -67,8 +67,9 @@ offer_finder/            the code; run from the repo root with `python -m offer_
   bot/       Telegram: app (process, background tasks, Gmail job), access (authorize, approval, admin commands), conversation, preferences (/settings /home /radius), status (live progress message), notify (pick list + offer card), offers (offer buttons); `python -m offer_finder.bot`
 tests/       pytest, mirrors the package; helpers/ = shared fakes + factories;
              fixtures/ = real, PII-redacted Kleinanzeigen HTML + a hand-built alert email
-data/        plz_de.csv (committed); cache/, logs/, offer_finder.db, gmail_*.json (gitignored)
-docs/        ARCHITECTURE.md, DECISIONS.md, diagrams/ (Mermaid)
+data/        plz_de.csv (committed); cache/, logs/, backups/, offer_finder.db, gmail_*.json (gitignored)
+docs/        ARCHITECTURE.md, DECISIONS.md, DEPLOYMENT.md (Docker, server, backups), diagrams/ (Mermaid)
+Dockerfile, compose.yaml, deploy/smoke-test.sh   the container setup; runtime/ (gitignored) holds its env, secrets and data
 local/       gitignored: the user's personal notes, guides, handoffs — put session handoffs and how-tos here
 .cache/      gitignored: all tool caches (pytest, ruff, mypy, bytecode via make)
 ```
@@ -107,7 +108,7 @@ a redacted real alert once the user provides one.
 ## Logs
 
 To see what the bot did, **read `data/logs/offer_finder.log` first** (gitignored,
-rotating; the terminal shows the same lines). Lines are tagged `chat <id>`,
+rotating; the terminal shows the same lines; in Docker it's `runtime/data/logs/`). Lines are tagged `chat <id>`,
 `search <spec id>`, `email <id>` / `gmail`, so one request can be followed from
 the message to the notifications. New steps get one INFO line; problems a
 WARNING. Per-request detail goes at DEBUG (`LOG_LEVEL=DEBUG`). Keep it at that level.
@@ -117,7 +118,9 @@ WARNING. Per-request detail goes at DEBUG (`LOG_LEVEL=DEBUG`). Keep it at that l
 `.env`, `data/gmail_credentials.json`, `data/gmail_token.json` and
 `data/offer_finder.db` are gitignored. Only `.env.example` (placeholders) is
 committed. `setup_logging()` keeps the `httpx` and `httpcore` loggers at WARNING because
-their INFO lines contain the bot token.
+their INFO lines contain the bot token, and its formatter replaces the token
+with `<bot token>` everywhere (python-telegram-bot puts it into `InvalidToken`).
+Docker: `.dockerignore` is an allowlist; secrets and data are only mounted.
 
 ## Deliberately not built
 

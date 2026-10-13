@@ -143,6 +143,11 @@ sqlite3 data/offer_finder.db               # everything, including the exact LLM
 Fill `my_label` in the export for a few dozen real listings to get a small
 labelled set for checking the evaluator later.
 
+## Running it 24/7
+
+Docker Compose on any Linux host: see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+(local test with a test bot, smoke test, backups, server setup, `make deploy`).
+
 ## Known gaps
 
 - The Gmail alert parser is built against a hand-made fixture; it needs one real

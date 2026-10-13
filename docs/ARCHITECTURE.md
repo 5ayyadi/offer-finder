@@ -161,3 +161,12 @@ are always WARNING, because their INFO lines contain the bot token.
   and `EVALUATOR_PROMPT_VERSION`; `make export` writes a CSV with an empty
   `my_label` column for building a hand-labelled set.
 - How to run it for real: [README.md](../README.md#how-to-test-locally).
+
+## 9. Deployment
+
+One Docker Compose service ([DEPLOYMENT.md](DEPLOYMENT.md)). The image holds
+only the code and `plz_de.csv`; settings, secrets and data are mounted
+(`/data`, `/secrets`). The bot itself writes a heartbeat file every 60 s (the
+container health check) and a nightly SQLite backup (`storage/backup.py`,
+online backup API, keeps `BACKUP_KEEP`). `cli backup` / `cli verify-db` are the
+same functions for deploys, restores and `make backup-pull`.
