@@ -1,15 +1,16 @@
 [project]
 name = "offer-finder"
 version = "0.1.0"
-description = "Personal Kleinanzeigen TV deal-finder Telegram bot (V1 POC)"
+description = "Personal AI deal-finder for Kleinanzeigen, driven by a Telegram bot (V2 POC)"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
-    "pyyaml>=6.0",
     "curl-cffi>=0.7",
-    "python-telegram-bot>=21.0",
+    "python-telegram-bot[job-queue]>=21.0",
     "httpx>=0.28.1",
+    "google-api-python-client>=2.200.0",
+    "google-auth-oauthlib>=1.4.1",
 ]
 
 [dependency-groups]
@@ -17,17 +18,19 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "mypy>=1.10",
-    "types-PyYAML",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+cache_dir = ".cache/pytest"
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+cache-dir = ".cache/ruff"
 
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
+cache_dir = ".cache/mypy"

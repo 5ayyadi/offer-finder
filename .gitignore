@@ -1,8 +1,16 @@
+# secrets and local state
 .env
 data/cache/
+data/offer_finder.db*
+data/gmail_credentials.json
+data/gmail_token.json
+data/logs/
+
+# personal notes, handoffs and guides (never committed)
+local/
+
+# tool caches
+.cache/
 __pycache__/
 *.pyc
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
 .venv/
