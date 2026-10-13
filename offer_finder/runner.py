@@ -39,8 +39,23 @@ _LOG_FORMAT = "%(asctime)s %(levelname)-7s %(module)-12s %(message)s"
 _QUIET_LOGGERS = ("httpx", "httpcore", "apscheduler")  # httpx logs URLs that contain the bot token
 
 
+class _RedactingFormatter(logging.Formatter):
+    """Replaces secrets in the finished line, tracebacks included
+    (python-telegram-bot puts the bot token into InvalidToken errors)."""
+
+    def __init__(self, secrets: list[str]):
+        super().__init__(_LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+        self._secrets = [secret for secret in secrets if secret]
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        for secret in self._secrets:
+            text = text.replace(secret, "<bot token>")
+        return text
+
+
 def setup_logging(settings: Settings) -> None:
-    """Terminal + rotating file (settings.log_path). Safe to call twice."""
+    """Terminal + rotating file (settings.log_path), bot token redacted. Safe to call twice."""
     root = logging.getLogger()
     for handler in [h for h in root.handlers if getattr(h, "offer_finder", False)]:
         root.removeHandler(handler)
@@ -48,7 +63,7 @@ def setup_logging(settings: Settings) -> None:
 
     Path(settings.log_path).parent.mkdir(parents=True, exist_ok=True)
     file_handler = RotatingFileHandler(settings.log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
-    formatter = logging.Formatter(_LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+    formatter = _RedactingFormatter([settings.telegram_bot_token])
     handlers: list[logging.Handler] = [logging.StreamHandler(), file_handler]
     for handler in handlers:
         handler.setFormatter(formatter)

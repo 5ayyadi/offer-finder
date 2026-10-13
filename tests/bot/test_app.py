@@ -115,7 +115,7 @@ def test_build_application_wires_conversation_and_dependencies(tmp_path):
     commands = {c for h in handlers for c in getattr(h, "commands", ())}
     assert {"users", "approve", "block", "settings", "home", "radius"} <= commands
     assert application.job_queue is not None
-    assert application.job_queue.jobs() == ()  # Gmail polling is off by default
+    assert not application.job_queue.get_jobs_by_name("gmail")  # Gmail polling is off by default
 
 
 # --- Gmail flow: alert email -> DB -> evaluation -> Telegram -------------------
@@ -264,3 +264,48 @@ def test_friend_search_and_admin_alerts_stay_apart(tmp_path):
         assert not any(db.evaluation_visible_to(conn, eid, 42, is_admin=True) for eid in friend_ids)
     finally:
         conn.close()
+
+
+# --- heartbeat and nightly backup jobs ------------------------------------------------
+
+
+def test_heartbeat_job_touches_the_heartbeat_file(tmp_path):
+    settings = offline_settings(
+        tmp_path, telegram_bot_token="123:TEST", telegram_allowlist=[42], heartbeat_path=str(tmp_path / "hb")
+    )
+    application = build_application(settings)
+    [job] = application.job_queue.get_jobs_by_name("heartbeat")  # type: ignore[union-attr]
+    asyncio.run(job.callback(None))
+    assert (tmp_path / "hb").exists()
+
+
+def test_backup_job_writes_a_backup(tmp_path):
+    settings = offline_settings(
+        tmp_path, telegram_bot_token="123:TEST", telegram_allowlist=[42], backup_dir=str(tmp_path / "backups")
+    )
+    application = build_application(settings)
+    [job] = application.job_queue.get_jobs_by_name("backup")  # type: ignore[union-attr]
+    asyncio.run(job.callback(None))
+    assert [p.suffix for p in (tmp_path / "backups").iterdir()] == [".db"]
+
+
+def test_rejected_token_stops_the_bot_without_printing_the_token(tmp_path, monkeypatch, caplog, capsys):
+    import pytest
+    from telegram.error import InvalidToken
+
+    from offer_finder.bot import app
+
+    secret = "123456:SECRET-TOKEN"
+
+    class Rejecting:
+        def run_polling(self):
+            raise InvalidToken(f"The token `{secret}` was rejected by the server.")
+
+    settings = offline_settings(tmp_path, telegram_bot_token=secret, telegram_allowlist=[42])
+    monkeypatch.setattr(app, "Settings", lambda: settings)
+    monkeypatch.setattr(app, "build_application", lambda _settings: Rejecting())
+    with pytest.raises(SystemExit) as stopped:
+        app.main()
+    assert stopped.value.code != 0
+    output = caplog.text + capsys.readouterr().err + str(stopped.value)
+    assert "rejected" in output and secret not in output

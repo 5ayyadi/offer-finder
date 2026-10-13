@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     plz_csv_path: str = "data/plz_de.csv"
     cache_dir: str = "data/cache"
 
+    # Operations: nightly SQLite backup (hour in UTC), and a heartbeat file for the container health check
+    backup_dir: str = "data/backups"
+    backup_keep: int = 14
+    backup_hour_utc: int = 2
+    heartbeat_path: str = "data/heartbeat"
+
     # Logging: terminal + a rotating file. DEBUG adds every fetch and LLM call.
     log_level: str = "INFO"
     log_path: str = "data/logs/offer_finder.log"

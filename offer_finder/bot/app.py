@@ -7,10 +7,13 @@ poll never hit Kleinanzeigen at the same time; several users' searches queue.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import time
+from pathlib import Path
 
 from telegram import Bot
+from telegram.error import InvalidToken
 from telegram.ext import Application
 
 from offer_finder import runner
@@ -26,6 +29,7 @@ from offer_finder.services.gmail import GmailClient, GoogleGmailClient
 from offer_finder.services.llm import LLMProvider
 from offer_finder.services.search_url import build_search_urls
 from offer_finder.storage import db
+from offer_finder.storage.backup import backup_db
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +132,25 @@ async def gmail_poll_and_notify(
         logger.exception("gmail poll failed")
 
 
+HEARTBEAT_INTERVAL_S = 60
+
+
+def touch_heartbeat(path: str) -> None:
+    """Proves the event loop is alive (the container health check reads the
+    file's age). It says nothing about searches, Gmail or Telegram working."""
+    heartbeat = Path(path)
+    heartbeat.parent.mkdir(parents=True, exist_ok=True)
+    heartbeat.write_text(dt.datetime.now(dt.UTC).isoformat(timespec="seconds"), encoding="utf-8")
+
+
+async def nightly_backup(settings: Settings) -> None:
+    try:
+        path = await asyncio.to_thread(backup_db, settings.db_path, settings.backup_dir, settings.backup_keep)
+        logger.info("backup written: %s", path)
+    except Exception:
+        logger.exception("backup failed")
+
+
 def build_application(settings: Settings, gmail_client: GmailClient | None = None) -> Application:  # type: ignore[type-arg]
     application = Application.builder().token(settings.telegram_bot_token).build()
     llm = runner.make_provider(settings)
@@ -150,13 +173,24 @@ def build_application(settings: Settings, gmail_client: GmailClient | None = Non
         application.add_handler(handler)
     application.add_handler(build_conversation())
 
+    async def heartbeat_job(_context: object) -> None:
+        touch_heartbeat(settings.heartbeat_path)
+
+    async def backup_job(_context: object) -> None:
+        await nightly_backup(settings)
+
+    assert application.job_queue is not None  # needs python-telegram-bot[job-queue]
+    application.job_queue.run_repeating(heartbeat_job, interval=HEARTBEAT_INTERVAL_S, first=0, name="heartbeat")
+    application.job_queue.run_daily(
+        backup_job, time=dt.time(settings.backup_hour_utc, 0, tzinfo=dt.UTC), name="backup"
+    )
+
     if settings.gmail_enabled:
         client = gmail_client or GoogleGmailClient(settings.gmail_token_path)
 
         async def gmail_job(_context: object) -> None:
             await gmail_poll_and_notify(bot, settings, llm, lock, client)
 
-        assert application.job_queue is not None  # needs python-telegram-bot[job-queue]
         application.job_queue.run_repeating(gmail_job, interval=settings.gmail_poll_interval_s, first=10, name="gmail")
     return application
 
@@ -171,7 +205,12 @@ def main() -> None:
         settings.llm_model, settings.recommendation_threshold, settings.dry_run,
         "on" if settings.gmail_enabled else "off", settings.log_path,
     )
-    build_application(settings).run_polling()
+    try:
+        build_application(settings).run_polling()
+    except InvalidToken:
+        # python-telegram-bot puts the token itself into this error; never let it reach the logs
+        logger.error("Telegram rejected TELEGRAM_BOT_TOKEN; check the token in the env file")
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

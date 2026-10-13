@@ -6,6 +6,8 @@ Run from the repo root (or use the make targets, see Makefile):
   uv run python -m offer_finder.cli gmail-poll [--notify]
   uv run python -m offer_finder.cli stats
   uv run python -m offer_finder.cli export evaluations.csv
+  uv run python -m offer_finder.cli backup
+  uv run python -m offer_finder.cli verify-db data/backups/offer_finder-….db
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from offer_finder.core.models import Evaluation, Listing
 from offer_finder.core.search_spec import SpecError, describe, next_turn
 from offer_finder.services.gmail import GoogleGmailClient, authorize
 from offer_finder.storage import db
+from offer_finder.storage.backup import backup_db, verify_db
 
 
 def _print_evaluation(listing: Listing, evaluation: Evaluation) -> None:
@@ -162,6 +165,17 @@ def cmd_export(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backup(settings: Settings, _args: argparse.Namespace) -> int:
+    print(backup_db(settings.db_path, settings.backup_dir, settings.backup_keep))
+    return 0
+
+
+def cmd_verify_db(_settings: Settings, args: argparse.Namespace) -> int:
+    problems = verify_db(args.path)
+    print("\n".join(problems) if problems else f"{args.path}: ok")
+    return 1 if problems else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m offer_finder.cli", description="offer-finder dev CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -174,6 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("stats", help="row counts per table/status")
     export = sub.add_parser("export", help="evaluations as CSV with an empty my_label column")
     export.add_argument("path")
+    sub.add_parser("backup", help="online SQLite backup into BACKUP_DIR (keeps BACKUP_KEEP)")
+    verify = sub.add_parser("verify-db", help="integrity check of a database file, e.g. a backup")
+    verify.add_argument("path")
 
     args = parser.parse_args(argv)
     settings = Settings()
@@ -184,6 +201,8 @@ def main(argv: list[str] | None = None) -> int:
         "gmail-poll": cmd_gmail_poll,
         "stats": cmd_stats,
         "export": cmd_export,
+        "backup": cmd_backup,
+        "verify-db": cmd_verify_db,
     }
     return commands[args.command](settings, args)
 

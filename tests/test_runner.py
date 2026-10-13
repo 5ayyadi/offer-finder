@@ -158,6 +158,21 @@ def test_each_new_email_is_logged_with_its_listings_and_spec(tmp_path, caplog):
 # --- logging setup ----------------------------------------------------------------
 
 
+def test_bot_token_is_redacted_from_every_log_line_and_traceback(tmp_path, capsys):
+    secret = "123456:SECRET-TOKEN"
+    settings = offline_settings(tmp_path, telegram_bot_token=secret, log_path=str(tmp_path / "logs" / "bot.log"))
+    runner.setup_logging(settings)
+    log = logging.getLogger("telegram.ext.Application")
+    log.error("token %s in a message", secret)
+    try:
+        raise RuntimeError(f"The token `{secret}` was rejected by the server.")
+    except RuntimeError:
+        log.exception("bootstrap failed")
+    written = (tmp_path / "logs" / "bot.log").read_text(encoding="utf-8") + capsys.readouterr().err
+    assert "was rejected" in written and "bootstrap failed" in written
+    assert secret not in written and "<bot token>" in written
+
+
 def test_setup_logging_writes_a_log_file_without_the_bot_token(tmp_path):
     log_path = tmp_path / "logs" / "offer_finder.log"
     settings = offline_settings(tmp_path, log_path=str(log_path))

@@ -73,3 +73,24 @@ def test_gmail_commands_explain_missing_setup(env, capsys):
     assert "gmail-auth" in capsys.readouterr().out
     assert cli.main(["gmail-auth"]) == 1
     assert "Google Cloud" in capsys.readouterr().out
+
+
+def test_backup_then_verify_db(env, capsys, tmp_path, monkeypatch):
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path / "backups"))
+    cache_search_fixtures(env)
+    cli.main(["search", "Fernseher"])
+    capsys.readouterr()
+
+    assert cli.main(["backup"]) == 0
+    backup = capsys.readouterr().out.strip().splitlines()[-1]
+    assert Path(backup).parent == tmp_path / "backups"
+
+    assert cli.main(["verify-db", backup]) == 0
+    assert "ok" in capsys.readouterr().out
+
+
+def test_verify_db_fails_for_a_broken_file(env, capsys, tmp_path):
+    broken = tmp_path / "broken.db"
+    broken.write_bytes(b"garbage" * 200)
+    assert cli.main(["verify-db", str(broken)]) == 1
+    assert "broken.db" in capsys.readouterr().out
