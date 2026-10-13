@@ -1,0 +1,54 @@
+# One bot container. Runtime state lives in host folders (default ./runtime/),
+# never in the image: runtime/app.env (settings + secrets), runtime/data
+# (SQLite DB, cache, logs, backups) and runtime/secrets (gmail_token.json).
+# Updating or rebuilding the container never touches those folders.
+#
+# Only ONE bot may poll a Telegram token: stop `make bot` on the laptop before
+# starting this, and use `docker compose exec bot …` (not `run`) for CLI commands.
+
+name: offer-finder
+
+services:
+  bot:
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    image: offer-finder:${IMAGE_TAG:-local}
+    container_name: ${OFFER_FINDER_CONTAINER:-offer-finder-bot}
+    env_file: ${OFFER_FINDER_ENV_FILE:-runtime/app.env}
+    environment:  # these win over the env file: runtime paths point into the mounts
+      DB_PATH: /data/offer_finder.db
+      CACHE_DIR: /data/cache
+      LOG_PATH: /data/logs/offer_finder.log
+      BACKUP_DIR: /data/backups
+      HEARTBEAT_PATH: /data/heartbeat
+      GMAIL_TOKEN_PATH: /secrets/gmail_token.json
+      GMAIL_CREDENTIALS_PATH: /secrets/gmail_credentials.json
+    volumes:
+      - ${OFFER_FINDER_DATA_DIR:-./runtime/data}:/data
+      # writable: the Gmail client saves a refreshed token at startup
+      - ${OFFER_FINDER_SECRETS_DIR:-./runtime/secrets}:/secrets
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:  # the event loop is alive; it does NOT prove searches or Gmail work
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/data/heartbeat') > 180)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      start_interval: 5s
+    # no ports: the bot only makes outbound connections

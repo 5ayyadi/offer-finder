@@ -1,0 +1,7 @@
+# Allowlist: only what the image needs. Never .env, secrets, the DB, cache, logs or backups.
+*
+!pyproject.toml
+!uv.lock
+!offer_finder/
+!data/plz_de.csv
+**/__pycache__
