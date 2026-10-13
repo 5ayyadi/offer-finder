@@ -6,7 +6,7 @@ have to explore the repo. Reasons behind choices: [docs/DECISIONS.md](docs/DECIS
 
 ## What this is
 
-Personal POC, one user: a Telegram bot that turns a conversation into a
+Personal POC for its owner and a few approved friends: a Telegram bot that turns a conversation into a
 confirmed Kleinanzeigen search for any product, stores every listing in
 SQLite, has an LLM (Gemini free tier, OpenAI-compatible endpoint) judge each
 one, and sends one ranked list of the picks with buttons that open each offer
@@ -15,7 +15,8 @@ assumes the buyer wants the best product the budget can buy (quality guide
 in the spec, product tier with Python score caps). Kleinanzeigen
 saved-search alert emails (read-only Gmail OAuth) feed the same pipeline.
 V1 (TV-only catalog + fixed-weight scorer) was replaced on 2026-09-25; it's
-commit `62b2bb3` in git history.
+commit `62b2bb3` in git history. Multi-user (approval-gated, `users` table)
+was added on 2026-10-13: the IDs in `TELEGRAM_ALLOWLIST` are the admins.
 
 ## Rules — do not relitigate these silently
 
@@ -44,6 +45,16 @@ commit `62b2bb3` in git history.
    user's Kleinanzeigen account. Gmail access stays read-only.
 8. **Changing the evaluator prompt or schema? Bump `EVALUATOR_PROMPT_VERSION`**
    so stored evaluations stay comparable against a labelled set.
+9. **Every Telegram handler starts with `access.authorize()`** (private chat,
+   user row read from SQLite on each update; admins = `TELEGRAM_ALLOWLIST`).
+   Handler filters are only a first pass. Who may see an evaluation is
+   decided only by `db.evaluation_visible_to()` / the `_VISIBLE` SQL rule:
+   a user sees their own searches' picks; admins also see alert-email picks.
+   Gmail stays admin-only (matching, delivery, buttons).
+10. **Schema changes stay backward-compatible**: new tables or new nullable
+    columns only, no renames/drops/changed meanings, so redeploying an older
+    commit still runs against the newer DB. If that's ever impossible, the
+    rollback needs the pre-deploy backup.
 
 ## Repo layout (one package, no `src/`, no install step — explicit user choice)
 
@@ -53,7 +64,7 @@ offer_finder/            the code; run from the repo root with `python -m offer_
   core/      models + logic: parse, redflags, distance, search_spec, checks, evaluator, email_parse, pipeline
   services/  external systems: fetch (Kleinanzeigen), search_url, llm (OpenAI-compatible), gmail
   storage/   db.py (SQLite)
-  bot/       Telegram: app (process, background tasks, Gmail job), conversation, status (live progress message), notify (pick list + offer card), offers (offer buttons); `python -m offer_finder.bot`
+  bot/       Telegram: app (process, background tasks, Gmail job), access (authorize, approval, admin commands), conversation, preferences (/settings /home /radius), status (live progress message), notify (pick list + offer card), offers (offer buttons); `python -m offer_finder.bot`
 tests/       pytest, mirrors the package; helpers/ = shared fakes + factories;
              fixtures/ = real, PII-redacted Kleinanzeigen HTML + a hand-built alert email
 data/        plz_de.csv (committed); cache/, logs/, offer_finder.db, gmail_*.json (gitignored)
@@ -112,5 +123,6 @@ their INFO lines contain the bot token.
 
 Vision/photo analysis in evaluation, multi-page search results, a
 labelled-eval runner (the data for it is already stored), commands to list
-or deactivate saved specs, persisted conversation state, multi-user support.
-Don't add these preemptively. The user explicitly capped V2's scope.
+or deactivate saved specs, persisted conversation state, Gmail monitoring
+for friends, CI/CD. Don't add these preemptively. The user explicitly capped
+V2's scope.

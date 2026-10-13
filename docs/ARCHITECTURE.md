@@ -1,6 +1,6 @@
 # Architecture — offer-finder
 
-Personal POC, one user. Read this before touching code; details of *why*
+Personal POC for the owner and a few approved friends. Read this before touching code; details of *why*
 live in [DECISIONS.md](DECISIONS.md), diagrams in [diagrams/](diagrams/).
 
 ## 1. Goal and context
@@ -24,10 +24,12 @@ via `make` (`make bot`, `make search Q="…"`, …) — no install step.
 | Module | Responsibility |
 |---|---|
 | `bot/app.py` | Bot process: builds the PTB `Application`, runs confirmed searches as background tasks, schedules the Gmail job. One `asyncio.Lock` makes sure only one unit of work scrapes at a time. |
-| `bot/conversation.py` | `ConversationHandler`: COLLECTING → CONFIRMING (Search / Change / Cancel). Allowlist enforced by handler filters and in the button handler. State in memory. |
+| `bot/access.py` | `authorize()` at the start of every handler: private chats only, user row read from SQLite on each update, admin check for admin actions. A stranger's first message becomes a `pending` user and one Approve/Block message to the admins. `/users`, `/approve <id>`, `/block <id>`. |
+| `bot/conversation.py` | `ConversationHandler`: COLLECTING → CONFIRMING (Search / Change / Cancel). Uses the user's home postcode/radius. *Search* reserves a run (`db.reserve_search_run`: one at a time per user, `USER_DAILY_SEARCHES` per 24 h for non-admins) before starting it. State in memory. |
+| `bot/preferences.py` | `/settings`, `/home <PLZ>`, `/radius <km\|any>`: the caller's own defaults, falling back to `.env`. |
 | `bot/status.py` | The live status message of a running search: one Telegram message edited in place (results page(s) n/N → reading listing pages n/N → evaluating n/N → done, or ❌ why it stopped). The pipeline reports `Progress` from the worker thread; edits happen at most every 3 s, and a failed edit never breaks the search. |
 | `bot/notify.py` | The ranked pick list (`send_search_results` for a search, `send_new_picks` for Gmail), split at 4096 chars, with numbered `offer:<evaluation id>` buttons; records the picks **after** Telegram accepted the list. `send_offer()` = one offer's card (album/photo/text). Run summary text. |
-| `bot/offers.py` | Handles the offer buttons (allowlist checked): loads the evaluation by id and calls `send_offer()`. Works after restarts. |
+| `bot/offers.py` | Handles the offer buttons: `authorize()`, then `db.evaluation_visible_to()` (a user only opens their own offers), then `send_offer()`. Works after restarts. |
 | `runner.py` | Builds real dependencies from `Settings`; `run_search_once()` and `poll_gmail_once()` — synchronous, shared by bot (worker thread) and CLI. |
 | `cli.py` | Dev CLI: `search`, `gmail-auth`, `gmail-poll`, `stats`, `export`. |
 | `core/search_spec.py` | `next_turn()` turns the conversation into a `SearchSpec` (or one follow-up question): broad category query, every named place with its PLZ, one radius (`DEFAULT_RADIUS_KM` if none given), and a `quality_guide` (top tier / mid / avoid for the category and budget, from the LLM's product knowledge). The buyer is assumed to want the best product the budget buys. `describe()` is the confirmation text. |
@@ -46,6 +48,12 @@ via `make` (`make bot`, `make search Q="…"`, …) — no install step.
 
 ## 3. Main flows
 
+**Access.** Every update goes through `access.authorize()`. Admins are the IDs
+in `TELEGRAM_ALLOWLIST` (synced into `users` whenever the DB is opened).
+Anyone else is `pending` until an admin approves them, or `blocked`. Who may
+see an evaluation is one rule (`db._VISIBLE`): the owner of its search, plus
+admins for alert-email evaluations (no spec, or an admin's spec).
+
 Sequence diagrams: [diagrams/flows.md](diagrams/flows.md). Component view: [diagrams/overview.md](diagrams/overview.md).
 
 **Interactive search.** Text message → `next_turn()` (LLM) asks ≤3 questions
@@ -62,8 +70,8 @@ Tapping a number under the list → `offers.py` → `send_offer()`.
 
 **Gmail monitoring.** `JobQueue` every `GMAIL_POLL_INTERVAL_S` →
 `poll_gmail_once()`: list messages for `GMAIL_QUERY`, skip IDs already in
-`gmail_messages`, extract listing links, match the email to a saved spec by
-its query words (else evaluate without a spec), `process_email()` → same
+`gmail_messages`, extract listing links, match the email to a saved spec **of
+an admin** by its query words (else evaluate without a spec), `process_email()` → same
 fetch/evaluate path → `send_new_picks()` (a list of picks not listed before) to `TELEGRAM_NOTIFY_CHAT_ID`
 (default: first allowlisted user). An email is marked processed only when
 all its listings were fetched and evaluated, so budget stops and LLM
@@ -101,6 +109,11 @@ outscore a top-tier one.
 | `evaluations` | unique `(listing_id, IFNULL(search_spec_id,0))` | One evaluation per listing per spec (or per "no spec"): score, recommended, product/deal verdicts, `input_json` (facts + checks + exact prompt), `judgment_json`, raw response, model, prompt version. |
 | `notifications` | `(listing_id, chat_id)` | A listing appeared in a pick list for this chat. Gmail lists only show picks without a row here (each listed once); search lists show all picks of the search and mark these as "seen before". |
 | `gmail_messages` | `message_id` | Emails fully processed (listing ids, matched spec, error). |
+| `users` | `telegram_id` | Everyone who wrote to the bot: `status` pending/approved/blocked, `is_admin` (synced from `TELEGRAM_ALLOWLIST`), optional `home_plz` / `radius_km` (0 = any distance). |
+| `search_runs` | `id` | One row per confirmed search: `chat_id`, `status` queued/running/done/failed/interrupted, `search_spec_id`. The daily limit counts these. |
+
+Schema changes are additive only (new tables, new nullable columns), so an
+older release still runs against a newer database.
 
 Listing status: `discovered` → `fetched` | `out_of_range` | `fetch_failed`.
 A `discovered` listing is fetched on the next run that sees it (e.g. after

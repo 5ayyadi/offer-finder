@@ -101,7 +101,7 @@ def test_search_stores_fetches_and_evaluates_every_card(conn):
 def test_only_the_good_listing_becomes_a_pending_notification(conn):
     spec_id, spec = _spec(conn)
     _pipeline(conn).run_search(spec_id, spec)
-    pending = db.pending_notifications(conn, chat_id=42)
+    pending = db.pending_notifications(conn, chat_id=42, is_admin=True)
     assert [listing.listing_id for listing, _, _ in pending] == [GRUNDIG_ID]
 
 
@@ -229,7 +229,7 @@ def test_email_listing_is_stored_fetched_and_evaluated_without_spec(conn):
     assert (listing.source, listing.status) == ("gmail", "fetched")
     assert listing.title.startswith("Grundig 43 GUS")  # replaced by the detail page title
     assert report.evaluated == 1 and report.recommended == 1
-    assert len(db.pending_notifications(conn, 42)) == 1
+    assert len(db.pending_notifications(conn, 42, is_admin=True)) == 1
 
 
 def test_email_listing_already_found_by_search_is_not_fetched_again(conn):

@@ -186,3 +186,18 @@ class Evaluation(BaseModel):
     prompt_version: str
     user_prompt: str  # exactly what the LLM saw, for replay against labelled listings
     raw_response: dict[str, object]
+
+
+UserStatus = Literal["pending", "approved", "blocked"]
+
+
+class User(BaseModel):
+    """Someone who wrote to the bot. Admins come from TELEGRAM_ALLOWLIST;
+    everyone else starts as pending until an admin approves them."""
+
+    telegram_id: int
+    name: str
+    status: UserStatus
+    is_admin: bool = False
+    home_plz: str | None = None  # None = HOME_PLZ from .env
+    radius_km: int | None = None  # None = DEFAULT_RADIUS_KM from .env, 0 = any distance

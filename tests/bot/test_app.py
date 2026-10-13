@@ -112,6 +112,8 @@ def test_build_application_wires_conversation_and_dependencies(tmp_path):
     assert any(isinstance(h, ConversationHandler) for h in handlers)
     assert any(getattr(h, "callback", None) is show_offer for h in handlers)
     assert {"settings", "llm", "start_search"} <= set(application.bot_data)
+    commands = {c for h in handlers for c in getattr(h, "commands", ())}
+    assert {"users", "approve", "block", "settings", "home", "radius"} <= commands
     assert application.job_queue is not None
     assert application.job_queue.jobs() == ()  # Gmail polling is off by default
 
@@ -182,3 +184,83 @@ def test_summary_offers_one_saved_search_link_per_place(tmp_path, monkeypatch):
     assert "save these searches" in hint
     assert f"Mainz: {build_search_url(spec, spec.locations[0])}" in hint
     assert f"Mannheim: {build_search_url(spec, spec.locations[1])}" in hint
+
+
+# --- search runs and several users ---------------------------------------------------
+
+from offer_finder import runner
+from offer_finder.storage import db
+
+
+def _reserved_run(settings, chat_id):
+    conn = runner.open_db(settings)
+    try:
+        run_id = db.reserve_search_run(conn, chat_id, daily_limit=None)
+        assert isinstance(run_id, int)
+        return run_id
+    finally:
+        conn.close()
+
+
+def _run_row(settings, run_id):
+    conn = runner.open_db(settings)
+    try:
+        return conn.execute("SELECT status, search_spec_id FROM search_runs WHERE id = ?", (run_id,)).fetchone()
+    finally:
+        conn.close()
+
+
+def test_finished_search_marks_its_run_done(tmp_path):
+    settings = offline_settings(tmp_path)
+    cache_search_fixtures(settings)
+    run_id = _reserved_run(settings, 42)
+    asyncio.run(search_and_notify(FakeBot(), settings, ScriptedLLM(), asyncio.Lock(), 42, offline_spec(), run_id))
+    row = _run_row(settings, run_id)
+    assert row["status"] == "done" and row["search_spec_id"] is not None
+
+
+def test_search_that_stops_marks_its_run_failed(tmp_path):
+    settings = offline_settings(tmp_path)  # nothing cached, DRY_RUN on
+    run_id = _reserved_run(settings, 42)
+    asyncio.run(search_and_notify(FakeBot(), settings, ScriptedLLM(), asyncio.Lock(), 42, offline_spec(), run_id))
+    assert _run_row(settings, run_id)["status"] == "failed"
+
+
+def test_startup_releases_runs_cut_off_by_a_restart(tmp_path):
+    settings = offline_settings(tmp_path, telegram_bot_token="123:TEST", telegram_allowlist=[42])
+    run_id = _reserved_run(settings, 7)
+    build_application(settings)
+    assert _run_row(settings, run_id)["status"] == "interrupted"
+
+
+def test_friend_search_and_admin_alerts_stay_apart(tmp_path):
+    """Friend 7 searches; then an alert email from the admin's inbox brings in
+    the same listing. Each sees only their own picks."""
+    settings = offline_settings(tmp_path, telegram_allowlist=[42])
+    cache_search_fixtures(settings)
+    cache_email_details(settings)
+    conn = runner.open_db(settings)
+    db.request_access(conn, 7, "Sam")
+    db.set_user_status(conn, 7, "approved")
+    conn.close()
+
+    friend_bot = FakeBot()
+    asyncio.run(search_and_notify(friend_bot, settings, ScriptedLLM(), asyncio.Lock(), 7, offline_spec()))
+    assert {payload["chat_id"] for _, payload in friend_bot.sent if "chat_id" in payload} <= {7, None}
+    friend_list = _messages(friend_bot)[1][1]
+    friend_ids = [int(b.callback_data.split(":")[1]) for row in friend_list["reply_markup"].inline_keyboard for b in row]
+
+    admin_bot = FakeBot()
+    _poll(settings, admin_bot)
+    [(_, admin_list)] = admin_bot.sent
+    assert admin_list["chat_id"] == 42
+    admin_ids = [int(b.callback_data.split(":")[1]) for row in admin_list["reply_markup"].inline_keyboard for b in row]
+    assert admin_ids and not set(admin_ids) & set(friend_ids)
+
+    conn = runner.open_db(settings)
+    try:
+        assert all(db.evaluation_visible_to(conn, eid, 42, is_admin=True) for eid in admin_ids)
+        assert not any(db.evaluation_visible_to(conn, eid, 7, is_admin=False) for eid in admin_ids)
+        assert not any(db.evaluation_visible_to(conn, eid, 42, is_admin=True) for eid in friend_ids)
+    finally:
+        conn.close()

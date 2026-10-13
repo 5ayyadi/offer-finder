@@ -1,6 +1,6 @@
 # offer-finder
 
-A personal Telegram bot that finds worthwhile second-hand deals on
+A Telegram bot for you and a few friends that finds worthwhile second-hand deals on
 Kleinanzeigen.de, for any product. Tell it what you want, as a category is
 enough ("a good router in Wiesbaden, Mainz or Mannheim under €150"): it
 assumes you want the best product your budget can buy second-hand and writes
@@ -80,8 +80,23 @@ Message your bot: describe what you want → answer its question(s) → press
 **Search**. A status message then updates itself as the search runs (results
 page → reading listing pages 8/20 → evaluating 7/20 · 1 good so far → done).
 After that you get one message per recommended listing, then a summary with
-the Kleinanzeigen link for saving the search. Only users in
-`TELEGRAM_ALLOWLIST` get any reply.
+the Kleinanzeigen link for saving the search.
+
+The IDs in `TELEGRAM_ALLOWLIST` are the admins. When anyone else writes to the
+bot, it stores them as pending and sends the admins one message with
+**Approve** / **Block** buttons. Approved users can search (at most
+`USER_DAILY_SEARCHES` per 24 hours, one at a time) and only ever see their own
+results. Commands:
+
+| Command | Who | Does |
+|---|---|---|
+| `/settings` | everyone | shows your home postcode and radius |
+| `/home 55116` | everyone | home postcode for searches that name no place |
+| `/radius 30` or `/radius any` | everyone | radius for searches that name no distance |
+| `/users` | admins | everyone who wrote to the bot, with status |
+| `/approve <id>`, `/block <id>` | admins | same as the buttons |
+
+Gmail monitoring (below) stays admin-only.
 
 The terminal shows what the bot is doing: one line per step, tagged `chat <id>`
 or `search <id>`. The same lines go to `data/logs/offer_finder.log`.

@@ -226,7 +226,7 @@ def test_search_results_are_one_list_message_with_buttons_and_get_recorded(conn)
     assert payload["text"].index("90/100") < payload["text"].index("75/100")
     assert payload["parse_mode"] == "HTML"
     assert [b.text for row in payload["reply_markup"].inline_keyboard for b in row] == ["1", "2"]
-    assert db.pending_notifications(conn, 42) == []
+    assert db.pending_notifications(conn, 42, is_admin=True) == []
 
 
 def test_repeated_search_lists_the_picks_again_marked_as_seen(conn):
@@ -247,7 +247,7 @@ def test_no_picks_sends_no_list(conn):
 def test_failed_list_send_is_not_recorded_and_new_picks_are_retried(conn):
     _store_recommended(conn)
     assert asyncio.run(send_new_picks(FakeBot(fail_all=True), conn, 42)) == 0
-    assert len(db.pending_notifications(conn, 42)) == 1
+    assert len(db.pending_notifications(conn, 42, is_admin=True)) == 1
 
     bot = FakeBot()
     assert asyncio.run(send_new_picks(bot, conn, 42)) == 1

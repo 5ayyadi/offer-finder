@@ -1,16 +1,27 @@
-"""SQLite persistence — the single source of truth for listings, evaluations,
-notifications and processed Gmail messages. Plain stdlib sqlite3, no ORM.
+"""SQLite persistence — the single source of truth for users, listings,
+evaluations, notifications, search runs and processed Gmail messages.
+Plain stdlib sqlite3, no ORM.
+
+Schema changes stay backward-compatible (new tables, new nullable columns), so
+an older release still runs against a newer database file.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from offer_finder.core.models import Evaluation, Listing, ListingStatus, SearchSpec
+from offer_finder.core.models import (
+    Evaluation,
+    Listing,
+    ListingStatus,
+    SearchSpec,
+    User,
+    UserStatus,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS search_specs (
@@ -75,6 +86,27 @@ CREATE TABLE IF NOT EXISTS gmail_messages (
     error TEXT,
     processed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    telegram_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'blocked')),
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    home_plz TEXT,
+    radius_km INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS search_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    search_spec_id INTEGER REFERENCES search_specs(id),
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed', 'interrupted')),
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_search_runs_chat ON search_runs (chat_id, created_at);
 """
 
 
@@ -114,8 +146,16 @@ def get_search_spec(conn: sqlite3.Connection, search_spec_id: int) -> SearchSpec
     return SearchSpec.model_validate_json(row["spec_json"]) if row else None
 
 
-def active_search_specs(conn: sqlite3.Connection) -> list[tuple[int, SearchSpec]]:
-    rows = conn.execute("SELECT id, spec_json FROM search_specs WHERE active = 1 ORDER BY id DESC")
+def active_search_specs(
+    conn: sqlite3.Connection, owner_ids: list[int] | None = None
+) -> list[tuple[int, SearchSpec]]:
+    """Newest first; owner_ids limits them to specs of those chats."""
+    sql = "SELECT id, spec_json FROM search_specs WHERE active = 1"
+    params: list[Any] = []
+    if owner_ids is not None:
+        sql += f" AND chat_id IN ({', '.join('?' * len(owner_ids))})"
+        params.extend(owner_ids)
+    rows = conn.execute(sql + " ORDER BY id DESC", params)
     return [(row["id"], SearchSpec.model_validate_json(row["spec_json"])) for row in rows]
 
 
@@ -265,25 +305,46 @@ def evaluations_for_spec(conn: sqlite3.Connection, search_spec_id: int) -> list[
 # --- notifications ---------------------------------------------------------------
 
 
+# Who may see an evaluation: the owner of its search, and admins for alert-email
+# evaluations (no spec, or a spec of an admin). Nobody sees a friend's search.
+# Uses the named parameters :chat and :is_admin.
+_VISIBLE = """(
+    EXISTS (SELECT 1 FROM search_specs s WHERE s.id = {e}.search_spec_id AND s.chat_id = :chat)
+    OR (:is_admin AND ({e}.search_spec_id IS NULL OR EXISTS (
+        SELECT 1 FROM search_specs s JOIN users u ON u.telegram_id = s.chat_id
+        WHERE s.id = {e}.search_spec_id AND u.is_admin = 1)))
+)"""
+
+
+def evaluation_visible_to(conn: sqlite3.Connection, evaluation_id: int, chat_id: int, is_admin: bool) -> bool:
+    row = conn.execute(
+        f"SELECT 1 FROM evaluations e WHERE e.id = :id AND {_VISIBLE.format(e='e')}",
+        {"id": evaluation_id, "chat": chat_id, "is_admin": is_admin},
+    ).fetchone()
+    return row is not None
+
+
 def pending_notifications(
-    conn: sqlite3.Connection, chat_id: int, search_spec_id: int | None = None
+    conn: sqlite3.Connection, chat_id: int, search_spec_id: int | None = None, *, is_admin: bool
 ) -> list[tuple[Listing, Evaluation, int]]:
-    """Recommended listings this chat hasn't been sent yet, best first.
-    Returns one row per listing even if several specs recommended it."""
+    """Recommended listings this chat may see and hasn't been sent yet, best
+    first. Returns one row per listing even if several specs recommended it."""
     rows = conn.execute(
-        """
+        f"""
         SELECT e.*, e.id AS evaluation_id FROM evaluations e
         WHERE e.recommended = 1
           AND (:spec IS NULL OR e.search_spec_id = :spec)
+          AND {_VISIBLE.format(e="e")}
           AND NOT EXISTS (
               SELECT 1 FROM notifications n WHERE n.listing_id = e.listing_id AND n.chat_id = :chat)
           AND e.id = (
               SELECT MIN(e2.id) FROM evaluations e2
               WHERE e2.listing_id = e.listing_id AND e2.recommended = 1
-                AND (:spec IS NULL OR e2.search_spec_id = :spec))
+                AND (:spec IS NULL OR e2.search_spec_id = :spec)
+                AND {_VISIBLE.format(e="e2")})
         ORDER BY e.score DESC, e.id
         """,
-        {"spec": search_spec_id, "chat": chat_id},
+        {"spec": search_spec_id, "chat": chat_id, "is_admin": is_admin},
     ).fetchall()
     result = []
     for row in rows:
@@ -297,13 +358,15 @@ def picks_for_spec(
     conn: sqlite3.Connection, chat_id: int, search_spec_id: int
 ) -> list[tuple[Listing, Evaluation, int, bool]]:
     """Recommended listings of one search, best first: (listing, evaluation,
-    evaluation id, already sent to this chat before)."""
+    evaluation id, already sent to this chat before). Empty unless the chat
+    owns the search."""
     rows = conn.execute(
         """
         SELECT e.*, e.id AS evaluation_id, EXISTS (
             SELECT 1 FROM notifications n WHERE n.listing_id = e.listing_id AND n.chat_id = :chat) AS seen
         FROM evaluations e
         WHERE e.recommended = 1 AND e.search_spec_id = :spec
+          AND EXISTS (SELECT 1 FROM search_specs s WHERE s.id = :spec AND s.chat_id = :chat)
         ORDER BY e.score DESC, e.id
         """,
         {"spec": search_spec_id, "chat": chat_id},
@@ -357,6 +420,159 @@ def record_gmail_message(
             " VALUES (?, ?, ?, ?, ?, ?)",
             (message_id, subject, json.dumps(listing_ids), search_spec_id, error, _now()),
         )
+
+
+# --- users -----------------------------------------------------------------------
+
+
+def _row_to_user(row: sqlite3.Row) -> User:
+    return User(
+        telegram_id=row["telegram_id"],
+        name=row["name"],
+        status=row["status"],
+        is_admin=bool(row["is_admin"]),
+        home_plz=row["home_plz"],
+        radius_km=row["radius_km"],
+    )
+
+
+def sync_admins(conn: sqlite3.Connection, admin_ids: list[int]) -> None:
+    """TELEGRAM_ALLOWLIST is the list of admins: make them approved admins and
+    take admin rights from anyone no longer on it."""
+    now = _now()
+    placeholders = ", ".join("?" * len(admin_ids))
+    with conn:
+        for telegram_id in admin_ids:
+            conn.execute(
+                "INSERT INTO users (telegram_id, name, status, is_admin, created_at, updated_at)"
+                " VALUES (?, 'admin', 'approved', 1, ?, ?)"
+                " ON CONFLICT (telegram_id) DO UPDATE SET is_admin = 1, status = 'approved'"
+                " WHERE is_admin = 0 OR status != 'approved'",
+                (telegram_id, now, now),
+            )
+        conn.execute(
+            f"UPDATE users SET is_admin = 0 WHERE is_admin = 1 AND telegram_id NOT IN ({placeholders})",
+            admin_ids,
+        )
+
+
+def get_user(conn: sqlite3.Connection, telegram_id: int) -> User | None:
+    row = conn.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)).fetchone()
+    return _row_to_user(row) if row else None
+
+
+def request_access(conn: sqlite3.Connection, telegram_id: int, name: str) -> tuple[User, bool]:
+    """A stranger wrote to the bot: store them as pending (once). Returns the
+    user and whether this was the first request."""
+    now = _now()
+    with conn:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO users (telegram_id, name, status, created_at, updated_at)"
+            " VALUES (?, ?, 'pending', ?, ?)",
+            (telegram_id, name, now, now),
+        )
+    user = get_user(conn, telegram_id)
+    assert user is not None
+    return user, cursor.rowcount == 1
+
+
+def set_user_status(conn: sqlite3.Connection, telegram_id: int, status: UserStatus) -> bool:
+    """Returns False if the user doesn't exist or already had that status."""
+    with conn:
+        cursor = conn.execute(
+            "UPDATE users SET status = ?, updated_at = ? WHERE telegram_id = ? AND status != ?",
+            (status, _now(), telegram_id, status),
+        )
+    return cursor.rowcount == 1
+
+
+def set_user_home(conn: sqlite3.Connection, telegram_id: int, home_plz: str | None) -> None:
+    with conn:
+        conn.execute(
+            "UPDATE users SET home_plz = ?, updated_at = ? WHERE telegram_id = ?", (home_plz, _now(), telegram_id)
+        )
+
+
+def set_user_radius(conn: sqlite3.Connection, telegram_id: int, radius_km: int | None) -> None:
+    """None = the .env default, 0 = any distance."""
+    with conn:
+        conn.execute(
+            "UPDATE users SET radius_km = ?, updated_at = ? WHERE telegram_id = ?", (radius_km, _now(), telegram_id)
+        )
+
+
+def list_users(conn: sqlite3.Connection) -> list[User]:
+    rows = conn.execute("SELECT * FROM users ORDER BY is_admin DESC, created_at, telegram_id")
+    return [_row_to_user(row) for row in rows]
+
+
+# --- search runs -----------------------------------------------------------------
+
+RunRefusal = Literal["busy", "limit"]
+RunStatus = Literal["done", "failed"]
+
+
+def reserve_search_run(
+    conn: sqlite3.Connection, chat_id: int, daily_limit: int | None, now: datetime | None = None
+) -> int | RunRefusal:
+    """Count a confirmed search before it starts. Refuses ("busy") while this
+    chat has a search queued or running, and ("limit") once it started
+    daily_limit searches in the last 24 hours (None = no limit). Check and
+    insert happen in one write transaction, so two taps can't both pass."""
+    now = now or datetime.now(UTC)
+    since = (now - timedelta(hours=24)).isoformat(timespec="seconds")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        busy = conn.execute(
+            "SELECT 1 FROM search_runs WHERE chat_id = ? AND status IN ('queued', 'running')", (chat_id,)
+        ).fetchone()
+        if busy:
+            conn.rollback()
+            return "busy"
+        if daily_limit is not None:
+            (recent,) = conn.execute(
+                "SELECT COUNT(*) FROM search_runs WHERE chat_id = ? AND created_at >= ?", (chat_id, since)
+            ).fetchone()
+            if recent >= daily_limit:
+                conn.rollback()
+                return "limit"
+        cursor = conn.execute(
+            "INSERT INTO search_runs (chat_id, status, created_at) VALUES (?, 'queued', ?)",
+            (chat_id, now.isoformat(timespec="seconds")),
+        )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    assert cursor.lastrowid is not None
+    return cursor.lastrowid
+
+
+def start_search_run(conn: sqlite3.Connection, run_id: int) -> None:
+    with conn:
+        conn.execute("UPDATE search_runs SET status = 'running' WHERE id = ?", (run_id,))
+
+
+def finish_search_run(
+    conn: sqlite3.Connection, run_id: int, status: RunStatus, search_spec_id: int | None
+) -> None:
+    with conn:
+        conn.execute(
+            "UPDATE search_runs SET status = ?, search_spec_id = ?, finished_at = ? WHERE id = ?",
+            (status, search_spec_id, _now(), run_id),
+        )
+
+
+def interrupt_unfinished_runs(conn: sqlite3.Connection) -> int:
+    """At startup: searches cut off by a restart no longer block their user
+    (they still count towards the daily limit)."""
+    with conn:
+        cursor = conn.execute(
+            "UPDATE search_runs SET status = 'interrupted', finished_at = ?"
+            " WHERE status IN ('queued', 'running')",
+            (_now(),),
+        )
+    return cursor.rowcount
 
 
 # --- inspection ------------------------------------------------------------------

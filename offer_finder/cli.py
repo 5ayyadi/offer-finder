@@ -128,7 +128,7 @@ def cmd_gmail_poll(settings: Settings, args: argparse.Namespace) -> int:
 
     conn = runner.open_db(settings)
     try:
-        for listing, evaluation, _ in db.pending_notifications(conn, settings.notify_chat_id or 0):
+        for listing, evaluation, _ in db.pending_notifications(conn, settings.notify_chat_id or 0, is_admin=True):
             print(f"[{evaluation.judgment.score}/100 RECOMMENDED, not sent yet]")
             print(format_notification(listing, evaluation, html=False), end="\n\n")
     finally:

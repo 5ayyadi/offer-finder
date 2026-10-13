@@ -247,8 +247,9 @@ async def send_search_results(bot: Sender, conn: sqlite3.Connection, chat_id: in
 
 
 async def send_new_picks(bot: Sender, conn: sqlite3.Connection, chat_id: int) -> int:
-    """Picks from alert emails this chat hasn't been sent yet."""
-    picks = [Pick(*row) for row in db.pending_notifications(conn, chat_id)]
+    """Picks from alert emails this chat hasn't been sent yet. Alert lists go to
+    the admins only (TELEGRAM_NOTIFY_CHAT_ID or the first allowlisted ID)."""
+    picks = [Pick(*row) for row in db.pending_notifications(conn, chat_id, is_admin=True)]
     if not picks:
         return 0
     header = (f"📬 {_plural(len(picks), 'new pick')} from your Kleinanzeigen alerts\n"

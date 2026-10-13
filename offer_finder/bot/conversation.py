@@ -1,9 +1,9 @@
 """Telegram dialogue: collect a wish -> propose a SearchSpec -> the user
 confirms, changes or cancels. State lives in memory (chat_data); a restart
-just means starting over.
+just means starting over. Every handler starts with access.authorize().
 
 bot_data must provide "settings", "llm" (an LLMProvider) and
-"start_search" (async (chat_id, spec) -> None that returns immediately).
+"start_search" (async (chat_id, spec, run_id) -> None that returns immediately).
 """
 
 from __future__ import annotations
@@ -25,9 +25,13 @@ from telegram.ext import (
 )
 from telegram.warnings import PTBUserWarning
 
+from offer_finder import runner
+from offer_finder.bot.access import GREETING, authorize
+from offer_finder.bot.preferences import home_plz, radius_km
 from offer_finder.config import Settings
-from offer_finder.core.models import SearchSpec
+from offer_finder.core.models import SearchSpec, User
 from offer_finder.core.search_spec import SpecError, describe, log_line, next_turn
+from offer_finder.storage import db
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +48,6 @@ CONFIRM_KEYBOARD = InlineKeyboardMarkup(
 )
 
 _CONFIRM_BUTTONS = "^(search|change|cancel)$"  # the pick list's offer buttons are handled in offers.py
-
-GREETING = (
-    "Tell me what you're looking for on Kleinanzeigen, for example:\n"
-    '"a good 65+ inch OLED TV around Mainz under €700"'
-)
-
 
 async def _reply(query: CallbackQuery, text: str) -> None:
     await query.message.reply_text(text)  # type: ignore[union-attr]
@@ -73,6 +71,8 @@ def _spec_failure_text(exc: SpecError) -> str:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if await authorize(update, context) is None:
+        return ConversationHandler.END
     context.chat_data.clear()  # type: ignore[union-attr]
     if update.message:
         await update.message.reply_text(GREETING)
@@ -81,6 +81,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     assert update.message is not None
+    user = await authorize(update, context)
+    if user is None:
+        return ConversationHandler.END
     chat_data: dict[str, Any] = context.chat_data  # type: ignore[assignment]
     history = chat_data.setdefault("history", [])
     if "spec" in chat_data:  # typed instead of pressing a button: treat it as a change request
@@ -96,8 +99,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             next_turn,
             list(history),
             context.bot_data["llm"],
-            settings.home_plz,
-            default_radius_km=settings.default_radius_km,
+            home_plz(user, settings),
+            default_radius_km=radius_km(user, settings),
         )
     except SpecError as exc:
         history.pop()
@@ -120,31 +123,53 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return CONFIRMING
 
 
+def _reserve(settings: Settings, user: User) -> int | str:
+    """A run id, or why this search can't start now."""
+    limit = None if user.is_admin else settings.user_daily_searches
+    conn = runner.open_db(settings)
+    try:
+        reserved = db.reserve_search_run(conn, user.telegram_id, limit)
+    finally:
+        conn.close()
+    if reserved == "busy":
+        return "Your previous search is already running. Press Search again once it has finished."
+    if reserved == "limit":
+        return f"You've used your {limit} searches for the last 24 hours. Please try again later."
+    return reserved
+
+
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     assert query is not None and query.message is not None
-    settings: Settings = context.bot_data["settings"]
-    if query.from_user.id not in settings.telegram_allowlist:
+    user = await authorize(update, context)
+    if user is None:
         return ConversationHandler.END  # silently ignore — no allowlist confirmation leak
 
-    await query.answer()
     chat_data: dict[str, Any] = context.chat_data  # type: ignore[assignment]
-    spec: SearchSpec | None = chat_data.get("spec")
-    assert update.effective_chat is not None
-    chat_id = update.effective_chat.id
+    spec: SearchSpec | None = chat_data.pop("spec", None)  # taken first: a second tap finds nothing
+    chat_id = user.telegram_id
+    await query.answer()
     if spec is None:
         logger.info("chat %d: button pressed for an expired search", chat_id)
         await _reply(query, "That search has expired. Tell me again what you're looking for.")
         return ConversationHandler.END
 
-    await query.edit_message_reply_markup(reply_markup=None)
     if query.data == "search":
+        reserved = _reserve(context.bot_data["settings"], user)
+        if isinstance(reserved, str):
+            chat_data["spec"] = spec  # keep the proposal and its buttons for later
+            logger.info("chat %d: search refused: %s", chat_id, reserved)
+            await _reply(query, reserved)
+            return CONFIRMING
+        await query.edit_message_reply_markup(reply_markup=None)
         chat_data.clear()
         logger.info("chat %d: search confirmed", chat_id)
-        await context.bot_data["start_search"](chat_id, spec)  # it posts a live status message
+        await context.bot_data["start_search"](chat_id, spec, reserved)  # it posts a live status message
         return ConversationHandler.END
+
+    await query.edit_message_reply_markup(reply_markup=None)
     if query.data == "change":
-        chat_data.setdefault("history", []).append(("assistant", _proposal(chat_data.pop("spec"))))
+        chat_data.setdefault("history", []).append(("assistant", _proposal(spec)))
         logger.info("chat %d: change requested", chat_id)
         await _reply(query, "What should I change?")
         return COLLECTING
@@ -156,14 +181,16 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if await authorize(update, context) is None:
+        return ConversationHandler.END
     context.chat_data.clear()  # type: ignore[union-attr]
     if update.message:
         await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
 
 
-def build_conversation(allowlist: list[int]) -> ConversationHandler[Any]:
-    allowed = filters.User(user_id=allowlist)
+def build_conversation() -> ConversationHandler[Any]:
+    allowed = filters.ChatType.PRIVATE  # a first pass only; each handler calls authorize()
     text = filters.TEXT & ~filters.COMMAND & allowed
     with warnings.catch_warnings():
         # per_message=False is intended: the buttons belong to the chat's single open proposal

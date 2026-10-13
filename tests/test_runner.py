@@ -28,7 +28,7 @@ def test_run_search_once_goes_through_real_fetch_layer_into_the_db(tmp_path):
     assert (outcome.report.found, outcome.report.evaluated, outcome.report.recommended) == (2, 2, 1)
     conn = db.connect(settings.db_path)
     assert db.get_search_spec(conn, outcome.search_spec_id) == offline_spec()
-    assert [listing.listing_id for listing, _, _ in db.pending_notifications(conn, 42)] == [GRUNDIG_ID]
+    assert [listing.listing_id for listing, _, _ in db.pending_notifications(conn, 42, is_admin=True)] == [GRUNDIG_ID]
 
 
 def test_uncached_search_in_dry_run_explains_how_to_go_live(tmp_path):
@@ -76,7 +76,7 @@ def test_gmail_poll_stores_and_evaluates_email_listings(tmp_path):
 
 
 def test_gmail_poll_uses_the_matching_spec(tmp_path):
-    settings = offline_settings(tmp_path)
+    settings = offline_settings(tmp_path, telegram_allowlist=[42])
     cache_email_details(settings)
     conn = runner.open_db(settings)
     spec_id = db.insert_search_spec(conn, 42, make_spec(query="OLED 65", plz="57074", radius_km=None))
@@ -87,6 +87,29 @@ def test_gmail_poll_uses_the_matching_spec(tmp_path):
     conn = db.connect(settings.db_path)
     row = conn.execute("SELECT search_spec_id FROM evaluations WHERE listing_id = ?", (GRUNDIG_ID,)).fetchone()
     assert row["search_spec_id"] == spec_id
+
+
+def test_alert_email_is_never_matched_to_a_friends_search(tmp_path):
+    """Alert emails come from the admin's inbox: a friend's search with the
+    same words must not receive them."""
+    settings = offline_settings(tmp_path, telegram_allowlist=[42])
+    cache_email_details(settings)
+    conn = runner.open_db(settings)
+    friend_spec = db.insert_search_spec(conn, 7, make_spec(query="OLED 65", plz="57074", radius_km=None))
+    conn.close()
+
+    runner.poll_gmail_once(settings, ScriptedLLM(), alert_gmail())
+
+    conn = db.connect(settings.db_path)
+    rows = conn.execute("SELECT search_spec_id FROM evaluations").fetchall()
+    assert rows and all(row["search_spec_id"] is None for row in rows)
+    assert db.evaluations_for_spec(conn, friend_spec) == []
+
+
+def test_open_db_keeps_the_admins_in_sync_with_the_allowlist(tmp_path):
+    conn = runner.open_db(offline_settings(tmp_path, telegram_allowlist=[42]))
+    admin = db.get_user(conn, 42)
+    assert admin is not None and admin.is_admin and admin.status == "approved"
 
 
 def test_processed_email_is_not_read_again(tmp_path):

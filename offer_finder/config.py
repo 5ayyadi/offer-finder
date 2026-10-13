@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     home_plz: str = "10115"
     default_radius_km: int | None = 20  # when the buyer gives no distance; blank = any distance
     recommendation_threshold: int = 70
+    user_daily_searches: int = 5  # confirmed searches per non-admin user in any 24 hours
 
     # Fetching / anti-blocking
     max_requests_per_run: int = 40  # one results page per city + detail pages

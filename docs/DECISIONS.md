@@ -86,3 +86,22 @@ Context: several places, "best of category", list-first results, 2026-10-06.
 
 **Decision:** Results are one ranked text list with numbered buttons (`offer:<evaluation id>`); a tap sends that offer's card with photos. Search lists show all picks of the run (earlier ones marked "seen before"); Gmail lists only new picks.
 **Reason:** The user wants to read the picks and the AI's reasons in one place and open only the ones they care about, instead of a stream of photo albums. Carrying the evaluation id makes buttons survive restarts without extra state.
+
+---
+
+Context: friends can use the bot, 2026-10-13.
+
+**Decision:** Multi-user with admin approval. `TELEGRAM_ALLOWLIST` lists the admins; anyone else who writes is stored as `pending` in a `users` table and the admins get one message with Approve/Block buttons.
+**Reason:** The bot is public on Telegram and every search spends the owner's Gemini quota and Kleinanzeigen request budget, so access stays invite-only. Approval needs no restart and no `.env` edit.
+
+**Decision:** Authorization is checked inside every handler (`access.authorize()`), reading the user row from SQLite on each update; button data is matched with strict patterns and ownership is checked server-side (`db.evaluation_visible_to()`).
+**Reason:** Telegram filters only see the update, not who owns an evaluation id. Forged or stale callback data must get nowhere, and a block takes effect immediately.
+
+**Decision:** Gmail monitoring stays admin-only: alert emails are matched only to admins' searches, evaluated under those or under no search, and listed only to the admins.
+**Reason:** The inbox and the Kleinanzeigen saved searches belong to the owner. Matching by query words could otherwise attach the owner's alerts to a friend's search; this also closed a leak where alert lists contained friends' picks.
+
+**Decision:** A search = one confirmed press of *Search*. `search_runs` + `db.reserve_search_run()` allow one queued/running search per user and `USER_DAILY_SEARCHES` (5) per rolling 24 hours for non-admins, checked and recorded in one `BEGIN IMMEDIATE` transaction. Failed runs count; runs cut off by a restart are marked `interrupted`.
+**Reason:** Protects the shared free-tier quota and the server's IP from one user, and a double tap can't start two runs. Counting attempts (not successes) means retries can't get around the limit.
+
+**Decision:** Per-user home postcode and radius (`/home`, `/radius`) fall back to `HOME_PLZ` / `DEFAULT_RADIUS_KM`.
+**Reason:** Friends live elsewhere; the `.env` values stay the defaults so nothing changes for the owner.

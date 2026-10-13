@@ -93,8 +93,10 @@ def make_fetcher(settings: Settings) -> Fetcher:
 
 
 def open_db(settings: Settings) -> sqlite3.Connection:
+    """Schema applied and the admins (TELEGRAM_ALLOWLIST) in sync."""
     conn = db.connect(settings.db_path)
     db.init_db(conn)
+    db.sync_admins(conn, settings.telegram_allowlist)
     return conn
 
 
@@ -193,7 +195,8 @@ def poll_gmail_once(
     conn = open_db(settings)
     try:
         pipeline = make_pipeline(settings, conn, provider, fetcher)
-        specs = db.active_search_specs(conn)
+        # The alert emails come from the admins' inbox, so only their searches can match.
+        specs = db.active_search_specs(conn, owner_ids=settings.telegram_allowlist)
         new_ids = [m for m in client.list_message_ids(settings.gmail_query) if not db.gmail_message_seen(conn, m)]
         if new_ids:
             logger.info("gmail: %d new email(s)", len(new_ids))
